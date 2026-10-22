@@ -2,7 +2,7 @@
   <img src="docs/images/header.png" alt="Suspex0" width="100%">
 </p>
 
-# Suspex0 — AI-Driven Security Assessment Autonomous Pentesting Agent
+# Suspex0 — AI-driven Windows security research & pentesting platform
 
 Suspex0 turns any MCP-capable LLM into an autonomous pentester for **authorized
 Windows lab environments**. An MCP client (Claude, Kilo, Cursor, any agent
