@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="header.png" alt="Suspex0" width="100%">
+  <img src="docs/images/header.png" alt="Suspex0" width="100%">
 </p>
 
 # Suspex0 — AI-Driven Security Assessment Autonomous Pentesting Agent
@@ -311,6 +311,17 @@ Destructive operations (`file_manage delete`, `kill_process`,
 non-read-only and highlighted in the dashboard tool-call log. Every tool
 call to a non-allowlisted target is refused before any packet leaves the
 orchestrator.
+
+## Dashboard
+
+With `dashboard.enabled: true` the orchestrator serves a live web UI on
+`http://127.0.0.1:8766`: session/agent status, the findings ledger, the
+tool-call log, and the machine registry (connect / disconnect / use),
+updated over a websocket.
+
+<p align="center">
+  <img src="docs/images/dashboard.jpg" alt="Suspex0 dashboard" width="100%">
+</p>
 
 ## Deploying / updating a target
 
