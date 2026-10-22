@@ -1,0 +1,12 @@
+name: callback_scan
+description: kernel callback inventory (process/thread/image notify, registry callbacks) via ntoskrnl PDB symbols, attributed to owning drivers
+target: kernel
+params:
+  binary_path:
+    type: str
+    default: ""
+    description: "ntoskrnl.exe path (default: C:\\Windows\\System32\\ntoskrnl.exe)"
+  include_lists:
+    type: list
+    default: []
+    description: "restrict to these callback groups (default: all)"

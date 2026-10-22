@@ -1,0 +1,17 @@
+name: irp_hook_check
+description: "diff a live DRIVER_OBJECT's MajorFunction[]/FastIoDispatch against the static dispatch table recovered from its on-disk .sys — IRP-hook / dispatch-table hijack detection"
+target: kernel
+params:
+  driver_object:
+    type: str
+    required: true
+    description: "_DRIVER_OBJECT VA (hex). Obtain via IDA 'dt _DRIVER_OBJECT', !drvobj, or a prior object-dir walk — enumeration is not in scope here"
+  module_path:
+    type: str
+    default: ""
+    description: "path to the driver's on-disk/dumped .sys (artifact or local path). When empty, only the outside-module sanity check runs"
+  view:
+    type: str
+    default: "kernel"
+    enum: ["kernel", "user"]
+    description: "which view to read kernel memory through"

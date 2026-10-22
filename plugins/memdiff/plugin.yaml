@@ -1,0 +1,32 @@
+name: memdiff
+description: snapshot -> delay -> diff of a process region/module (unpacking & heap-evolution detector)
+target: any
+params:
+  pid:
+    type: int
+    required: true
+    description: target process
+  module:
+    type: str
+    default: ""
+    description: module name to diff (mutually exclusive with base/size)
+  base:
+    type: str
+    default: "0"
+    description: hex base address when no module given
+  size:
+    type: str
+    default: "0"
+    description: hex size when no module given
+  delay_ms:
+    type: int
+    default: 1000
+    description: milliseconds between snapshot and diff
+  rounds:
+    type: int
+    default: 1
+    description: repeat snapshot/diff N times
+  view:
+    type: str
+    default: kernel
+    description: kernel | user

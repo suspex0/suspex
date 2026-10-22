@@ -1,0 +1,16 @@
+name: yara_mem
+description: scan a process module image in memory with a YARA rule (implant-pattern detection)
+target: kernel
+params:
+  pid:
+    type: int
+    required: true
+    description: target process
+  module:
+    type: str
+    required: true
+    description: module name to scan
+  rule:
+    type: str
+    default: ""
+    description: inline YARA rule source

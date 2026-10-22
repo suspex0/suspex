@@ -1,0 +1,30 @@
+name: craft_test
+description: "assemble → disasm-verify → emulate a snippet end-to-end (Phase 4 of the 2026-09-11 codegen plan)."
+target: any
+params:
+  code:
+    type: str
+    required: true
+    description: "assembly source (multi-line; keystone syntax, labels allowed)"
+  arch:
+    type: str
+    default: "x64"
+    enum: ["x86", "x64"]
+    description: target architecture
+  entry:
+    type: int
+    default: 4096
+    description: "base VA to load the shellcode at (default 0x1000)"
+  emulate:
+    type: bool
+    default: true
+    description: "run the payload under the emulator after assembling"
+  emu_engine:
+    type: str
+    default: "unicorn"
+    enum: ["speakeasy", "unicorn"]
+    description: "emulator backend — unicorn is bare CPU, speakeasy adds a Windows veneer"
+  emu_max_ins:
+    type: int
+    default: 100000
+    description: instruction cap for the emulator run

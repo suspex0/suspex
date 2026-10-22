@@ -1,0 +1,28 @@
+name: sigscan
+description: "signature+mask scan across a named module in kernel or usermode memory; reports hits with hex context"
+target: kernel
+params:
+  module:
+    type: str
+    required: true
+    description: "module name to scan (e.g. ntoskrnl.exe, ci.dll)"
+  pattern:
+    type: str
+    required: true
+    description: "hex bytes, spaces ok, ?? wildcards (e.g. '4D 5A 90 00')"
+  view:
+    type: str
+    default: "kernel"
+    enum: ["kernel", "user"]
+    description: which view to scan through
+  pid:
+    type: int
+    default: 0
+    description: "user view: target pid (0 = umagent self)"
+  max_results:
+    type: int
+    default: 64
+  context:
+    type: int
+    default: 32
+    description: hex-dump bytes around each hit

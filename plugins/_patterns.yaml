@@ -1,0 +1,73 @@
+# Per-build kernel pattern recipes (phase 2). Keyed by the NtBuild the
+# kernel view reports (Status.os_build); "default" is the fallback.
+#
+# PRIMARY PATH is PDB-based (see docs/SDK.md): pidddb_scan resolves the
+# recipe's `pdb` symbol names through the build's published PDB (dbghelp,
+# cached under artifacts.pdb_cache) — exact addresses, no per-build pattern
+# authoring. The `pattern`/`mask` scan below is the OFFLINE FALLBACK and is
+# only attempted when `verified: true` AND a pattern is set.
+#
+# `walk` offsets describe the entry layout (UNICODE_STRING position etc.) —
+# those are NOT in the PDB public stream and stay per-build data here.
+# All recipes target OUR OWN unload-hygiene checks (op-log cross-check),
+# not stealth.
+
+default:
+  # ci!g_KernelHashBucketList - QWORD .data head in ci.dll; entries are
+  # singly-linked HASH_BUCKET_ENTRY (Next@0x00, DriverName@0x08, CertHash[5]@0x18).
+  # PDB symbol is public in ci.pdb (primary path, verified on 26100).
+  # The legacy PAGE pattern below (kdmapper provenance) is the documented
+  # fallback and is expected ABSENT on 26100+ builds - kept unverified until
+  # someone re-lands it on a build where the PDB path is unavailable.
+  ci_hash_bucket_list:
+    module: "ci.dll"
+    pdb: ["g_KernelHashBucketList"]
+    pattern: "48 8B 1D ?? ?? ?? ?? EB ?? F7 43 40 00 20 00 00"
+    mask: "xxx????x?xxxxxxx"
+    verified: false
+    walk:
+      kind: "slist"
+      max_entries: 512
+      name_ustr_at: "0x08"
+      certhash_at: "0x18"
+
+  mm_unloaded_drivers:
+    module: "ntoskrnl.exe"
+    pdb: ["MmUnloadedDrivers", "MmLastUnloadedDriver"]
+
+26200:
+  # PDB resolution (primary path) was verified live on this build (2026-09-20,
+  # ntoskrnl 26200 base 0xfffff802bc800000):
+  #   MmLastUnloadedDriver -> ntoskrnl.exe RVA 0xef5488 (ULONG count; was 11 live)
+  #   MmUnloadedDrivers    -> ntoskrnl.exe RVA 0xef5490 (array POINTER global)
+  #   PiDDBCacheTable      -> ntoskrnl.exe RVA 0xfda480 (NOT in ci.dll PDB!)
+  #   (an earlier note here had the first two shifted +8 — corrected against
+  #   live reads: count=11 at +0xef5488, pool array ptr at +0xef5490)
+  pidddb_cache_table:
+    module: "ntoskrnl.exe"
+    pdb: ["PiDDBCacheTable"]
+    note: "PiDDBCacheTable is an RTL_AVL_TABLE; walk = balanced-node entries"
+    pattern: ""
+    mask: ""
+    verified: false
+    walk:
+      kind: "avl_entries"
+      max_entries: 100
+      name_ustr_at: "0x18"      # UNICODE_STRING DriverName inside PI_DDB_CACHE_ENTRY
+      timestamp_at: "0x28"      # ULONG driver timestamp
+
+  mm_unloaded_drivers:
+    module: "ntoskrnl.exe"
+    pdb: ["MmUnloadedDrivers", "MmLastUnloadedDriver"]
+    note: "MmUnloadedDrivers is the array POINTER global; MmLastUnloadedDriver the live index"
+    pattern: ""
+    mask: ""
+    verified: false
+    walk:
+      kind: "array"
+      entry_size: "0x30"
+      max_entries: 50
+      name_ustr_at: "0x0"
+      start_at: "0x10"
+      end_at: "0x18"
+      unload_time_at: "0x20"

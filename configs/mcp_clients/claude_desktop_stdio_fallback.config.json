@@ -1,0 +1,13 @@
+{
+  "_comment": "Use this variant if your Claude Desktop build predates streamable-HTTP support and refuses `type: http`. It wraps the local endpoint through mcp-remote (npx) so a stdio-only client can still reach the orchestrator.",
+  "mcpServers": {
+    "suspex0": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "http://127.0.0.1:8765/mcp"
+      ]
+    }
+  }
+}

@@ -1,0 +1,38 @@
+name: ci
+
+# Windows-only project: the C++ driver/agent side is not built or tested
+# here — this workflow covers the Python orchestrator (lint, typecheck,
+# pytest). No Linux/macOS runners by design.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev
+        working-directory: orchestrator
+      - run: uv run ruff check src tests
+        working-directory: orchestrator
+      - run: uv run mypy src/suspex
+        working-directory: orchestrator
+
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev
+        working-directory: orchestrator
+      - run: uv run pytest -q
+        working-directory: orchestrator

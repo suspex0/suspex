@@ -1,0 +1,28 @@
+name: code_integrity
+description: "per-function body-hash diff of a live module vs its on-disk image — catches inline patches/hot-patches that iat_diff cannot see"
+target: kernel
+params:
+  module:
+    type: str
+    required: true
+    description: "module basename (e.g. mydrv.sys); kernel list unless pid+user module"
+  disk_path:
+    type: str
+    default: ""
+    description: "path to the reference on-disk binary; empty → fetched via file_manage-style module path is not automated — pass an artifact path"
+  pid:
+    type: int
+    default: 0
+    description: "pid for user modules; 0 = kernel module"
+  kernel:
+    type: bool
+    default: true
+    description: "read the module from kernel space"
+  view:
+    type: str
+    default: "kernel"
+    enum: ["kernel", "user"]
+  budget:
+    type: int
+    default: 0
+    description: "instruction budget for each side's recovery (0 = default)"

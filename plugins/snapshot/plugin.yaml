@@ -1,0 +1,60 @@
+name: snapshot
+description: |
+  Capture / list / diff / purge target-state snapshots. One capture covers
+  kernel modules, per-process VAD stats, running processes, key registry
+  hives (Run/RunOnce/Services), and file hashes under configured paths.
+  Diff between two labeled snapshots shows adds/removes/changes per
+  category — the "did our app leave traces?" workflow in one call.
+
+  Common patterns:
+    * before/after a test — capture 'pre', run test, capture 'post', diff 'pre' 'post'
+    * regression scan   — capture 'baseline' periodically, diff against latest
+    * incident triage   — capture 'now', diff against a known-clean baseline
+target: kernel
+timeout_s: 240
+params:
+  mode:
+    type: str
+    enum: [capture, list, diff, purge, show]
+    default: capture
+    description: |
+      capture — take a snapshot (default);
+      list    — list snapshots on disk;
+      diff    — compare two snapshots (needs label + compare_to);
+      show    — dump one snapshot's contents;
+      purge   — delete snapshots older than purge_older_than_days.
+  label:
+    type: str
+    default: "auto"
+    description: |
+      snapshot label; 'auto' derives one from the current timestamp.
+      Filenames on disk are '<label>_<iso>.json' plus a '<label>_latest.json'
+      pointer.
+  compare_to:
+    type: str
+    default: ""
+    description: diff mode — the other snapshot label or absolute path
+  categories:
+    type: list
+    default: []
+    description: |
+      subset of {kernel_modules, processes, vad_summary, services, run_keys,
+      file_hashes}; empty = all
+  file_globs:
+    type: list
+    default: []
+    description: |
+      capture mode — extra file paths to hash. Empty = System32\drivers
+      canonical set. Each is a target-side absolute path.
+  purge_older_than_days:
+    type: int
+    default: 30
+    description: purge mode — delete snapshots older than this many days
+  pid_include:
+    type: list
+    default: []
+    description: capture mode — restrict process/vad walk to these pids
+  max_vad_per_process:
+    type: int
+    default: 256
+    description: capture mode — cap per-process VAD entries walked

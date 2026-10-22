@@ -1,0 +1,13 @@
+{
+  "$schema": "https://app.kilo.ai/config.json",
+  "permission": {
+    "suspex0_*": "ask"
+  },
+  "mcp": {
+    "suspex0": {
+      "type": "remote",
+      "url": "http://127.0.0.1:8765/mcp",
+      "enabled": true
+    }
+  }
+}

@@ -1,0 +1,16 @@
+name: _example
+description: "hello-world plugin: echoes params, shows the SDK surface (views, nt_build, findings)"
+target: any
+params:
+  message:
+    type: str
+    default: "hello from _example"
+    description: text to echo back
+  count:
+    type: int
+    default: 3
+    description: how many times to repeat it
+  require_user_view:
+    type: bool
+    default: false
+    description: fail unless the usermode view is connected

@@ -1,0 +1,1667 @@
+syntax = "proto3";
+
+package suspex;
+
+// Single agent control plane. Every non-streaming response embeds OpStatus;
+// streaming RPCs carry OpStatus in the first (header) message of the stream.
+// v1 targets x64 only; addr_width fields are carried so the wire contract
+// already supports a future x86/WOW64 mode.
+
+message OpStatus {
+  bool ok = 1;
+  string error = 2;
+  uint32 errno_code = 3;
+}
+
+// ---------------------------------------------------------------- Agent ----
+
+enum DriverState {
+  DRIVER_ABSENT = 0;
+  DRIVER_SERVICE = 1;
+  DRIVER_MANUAL_MAPPED = 2;
+}
+
+message StatusRequest {}
+message StatusResponse {
+  OpStatus status = 1;
+  string agent_version = 2;
+  string os_version = 3;
+  uint32 os_build = 4;
+  bool testsigning = 5;
+  bool hvci = 6;
+  bool secureboot = 7;
+  DriverState driver_state = 8;
+  string driver_version = 9;
+  bool patchguard_expected = 10;
+  // v7: milliseconds since the agent process started. 0 on pre-v7 agents.
+  // target_manage(action='crash_state') diff's this vs the last successful
+  // call's wall-clock to detect a mid-session reboot.
+  uint64 agent_uptime_ms = 11;
+  // v14: unix-ms of the last system boot (derived from GetTickCount64) and a
+  // random per-agent-process id. Lets an orchestrator tell "same machine,
+  // new boot" apart from "same boot, agent restarted" without diffing
+  // uptimes by hand. 0/"" on agents that predate the fields.
+  uint64 boot_epoch_ms = 12;
+  string agent_instance_id = 13;
+}
+
+message DriverLoadRequest {
+  enum Method {
+    SERVICE = 0;      // test-signed service via SCM (NtLoadDriver path)
+    MANUAL_MAP = 1;   // custom mapper exe; HVCI must be off
+  }
+  Method method = 1;
+  string image_path = 2;   // default: agent install dir suspex_driver.sys
+  string mapper_path = 3;  // manual map only, default: agent dir mapper.exe
+}
+message DriverUnloadRequest {
+  bool delete_service = 1; // service path: stop + delete (reboot fallback documented)
+}
+
+// Bounce-and-swap a service binary on the target. The agent generates and
+// detached-spawns an on-target .cmd that stops the service, force-kills any
+// leftover process holding the old image, moves the live exe aside into
+// prev\, promotes the staged upload, restarts the service, health-checks the
+// listen port, and rolls back on failure. Works for the agent itself
+// (SuspexAgent) and the umagent (SuspexUmagent).
+message SelfUpdateRequest {
+  string service_name = 1;  // SuspexAgent | SuspexUmagent
+  string exe_path = 2;      // live binary, e.g. C:\suspex\suspex_agent.exe
+  string staged_path = 3;   // uploaded replacement, e.g. ...\suspex_agent.new
+  string sha256 = 4;        // optional: refuse swap if staged file mismatches
+  string listen_port = 5;   // health check after restart (e.g. "50074")
+}
+
+// v5: agent-side crash breadcrumb — the driver op ring persisted to
+// %ProgramData%\suspex\breadcrumb.bin. Survives an agent restart, so a
+// caller can ask "what was in flight when you died" and get an answer
+// even after SCM burned its 3-restart budget. The in-memory ring holds
+// the current run's calls; on startup the agent replays the last
+// on-disk snapshot from the previous run into `prior_ops`.
+message RecentOpsRequest {
+  uint32 limit = 1;      // 0 -> full ring (64)
+  bool include_prior = 2; // include ops from the previous agent lifetime
+}
+message BreadcrumbOp {
+  uint64 t_start_us = 1; // monotonic microseconds since agent start
+  uint64 t_end_us = 2;   // 0 if still pending / never completed
+  uint32 ioctl_code = 3; // SUSPEX_IOCTL_*
+  string arg_summary = 4;
+  uint32 status_code = 5; // NTSTATUS or GLE
+  string status_kind = 6; // "pending" | "ok" | "error" | "wedged"
+  uint64 latency_us = 7;  // t_end - t_start when known
+}
+message RecentOpsResponse {
+  OpStatus status = 1;
+  repeated BreadcrumbOp current = 2; // this agent lifetime
+  repeated BreadcrumbOp prior = 3;   // from the last shutdown snapshot (agent's prior run)
+  uint64 agent_start_epoch_ms = 4;
+  uint64 now_epoch_ms = 5;
+}
+
+// v8: broad target-machine fingerprint. Status stays cheap and answers the
+// "can I load the driver?" question; HostInfo answers "what am I running
+// on?" — identity (user/computer/domain), full OS release (product name,
+// display version, UBR), security posture (secure boot, VBS, driver
+// blocklist, LSA-PPL, CPU features, kernel debugger), and optionally
+// hardware and installed security products. All reads are observational —
+// no writes and no touch of the analyst-host defensive posture (see
+// docs/REVERSEKIT_REVIEW.md scope discipline).
+message HostInfoRequest {
+  bool include_security_products = 1; // WSC enum (may need SYSTEM); empty on failure
+  bool include_hardware = 2;          // CPUID + phys mem + hypervisor tag
+}
+message SecurityProduct {
+  string name = 1;
+  string state = 2;    // "on" | "off" | "expired" | "snoozed" | "unknown"
+  string version = 3;
+  string kind = 4;     // "av" | "firewall" | "antispyware"
+}
+message HostInfoResponse {
+  OpStatus status = 1;
+
+  // ---- Identity (driver-free, cheap) ----
+  string computer_name       = 2;  // GetComputerNameExW(NetBIOS)
+  string dns_hostname        = 3;  // GetComputerNameExW(DnsFullyQualified)
+  string domain              = 4;  // joined domain / workgroup
+  string logged_on_user      = 5;  // active console session user (WTSGetActiveConsoleSessionId)
+  string agent_run_as        = 6;  // whoever the agent process is running as
+  bool   is_elevated         = 7;  // agent token elevation
+
+  // ---- OS ----
+  string product_name        = 10; // "Windows 11 Pro" (registry ProductName)
+  string edition_id          = 11; // "Professional"  (registry EditionID)
+  string display_version     = 12; // "25H2"          (registry DisplayVersion)
+  string release_id          = 13; // "2609"          (registry ReleaseId)
+  uint32 build_major         = 14; // 26200           (RtlGetVersion)
+  uint32 build_ubr           = 15; // 9186            (registry UBR)
+  string full_build_string   = 16; // convenience: "26200.9186"
+  string install_date        = 17; // ISO8601 from registry InstallDate
+  string boot_time           = 18; // ISO8601 (now - GetTickCount64)
+  string timezone            = 19; // dynamic timezone key name
+  string arch                = 20; // "x64" | "arm64" | "wow64"
+
+  // ---- Security posture ----
+  // For each flag: `<name>_source` is "driver" (verified by loaded driver),
+  // "registry" (usermode registry read), "api" (Nt/Win32 API), "unknown" (probe
+  // failed). The orchestrator wraps this into the {value, confidence, note}
+  // envelope for LLM consumption; callers get the raw pair here.
+  bool testsigning           = 30;
+  string testsigning_source  = 31;
+  bool hvci                  = 32;
+  string hvci_source         = 33;
+  bool secureboot            = 34;
+  string secureboot_source   = 35;
+  bool kernel_debugger       = 36; // NtQuerySystemInformation(KernelDebuggerInformation)
+  string kernel_debugger_source = 37;
+  bool vbs_enabled           = 38;
+  string vbs_source          = 39;
+  bool credential_guard      = 40;
+  string credential_guard_source = 41;
+  bool driver_blocklist_on   = 42; // HKLM\...\CI\Config\VulnerableDriverBlocklistEnable
+  string driver_blocklist_source = 43;
+  bool lsa_protected         = 44; // HKLM\...\Lsa\RunAsPPL
+  string lsa_protected_source = 45;
+  bool smep                  = 46;
+  bool smap                  = 47;
+  bool cet_shstk             = 48;
+  string patchguard_state    = 49; // "expected" | "kd_disables_pg" | "unknown"
+  // v0.13: Kernel VA Shadow (Meltdown mitigation) — bit 0 of the
+  // SYSTEM_KERNEL_VA_SHADOW_INFORMATION dword returned by
+  // NtQuerySystemInformation(SystemKernelVaShadowInformation=196).
+  bool   kva_shadow          = 50;
+  string kva_shadow_source   = 51;
+
+  // ---- Hardware (optional; empty when include_hardware=false) ----
+  string cpu_brand           = 60;
+  uint32 cpu_cores           = 61; // physical cores
+  uint32 cpu_logical         = 62; // logical processors
+  uint64 phys_mem_bytes      = 63;
+  string hypervisor_vendor   = 64; // "Microsoft Hv" | "VMwareVMware" | "KVMKVMKVM" | "VBoxVBoxVBox" | ""
+  bool   is_vm               = 65;
+
+  // ---- Uptime ----
+  uint64 pc_uptime_ms        = 66; // GetTickCount64() — since last cold/warm boot
+  uint64 agent_uptime_ms     = 67; // current suspex_agent process lifetime
+  uint64 service_uptime_ms   = 68; // suspex_agent service lifetime per SCM (0 if not
+                                   // running as a service or SCM query fails)
+
+  // ---- Security products (optional) ----
+  repeated SecurityProduct security_products = 70;
+
+  // ---- Collector diagnostics — one string per probe that failed, so the
+  // orchestrator can render honest "we couldn't check X" gaps instead of
+  // silently reporting a default value as truth.
+  repeated string probe_errors = 90;
+}
+
+// ------------------------------------------------------- Screen / UI (v15) ----
+//
+// Visual inspection of the interactive desktop. The Session-0 service cannot
+// see user-desktop windows (EnumWindows is window-station scoped), so every
+// capture / enumeration runs in a short-lived re-launch of the agent binary
+// inside the active console session (CreateProcessAsUserW + --screenshot) and
+// ships results back over an anonymous pipe (screen_common.hpp wire header).
+
+message WindowRect {
+  int32 x = 1;
+  int32 y = 2;
+  int32 width = 3;
+  int32 height = 4;
+}
+
+message WindowDetail {
+  uint64 hwnd = 1;              // HWND cast to uint64
+  string title = 2;
+  WindowRect rect = 3;          // WINDOWINFO.rcWindow
+  bool is_foreground = 4;
+  bool is_minimized = 5;
+  int32 z_order = 6;            // EnumWindows order, 0 = top-most
+  // ---- v15 detailed metadata (populated when include_details, default
+  // true); mirrors the JSON keys emitted by window_enum.cpp 1:1 ----
+  string class_name = 7;        // GetClassNameW
+  WindowRect client_rect = 8;   // WINDOWINFO.rcClient
+  uint32 style = 9;             // WINDOWINFO.dwStyle
+  uint32 exstyle = 10;          // WINDOWINFO.dwExStyle
+  uint32 window_status = 11;    // WINDOWINFO.dwWindowStatus
+  uint32 border_cx = 12;        // WINDOWINFO.cxWindowBorders
+  uint32 border_cy = 13;        // WINDOWINFO.cyWindowBorders
+  uint32 show_cmd = 14;         // WINDOWPLACEMENT.showCmd (1=normal 2=min 3=max)
+  WindowRect normal_pos = 15;   // WINDOWPLACEMENT.rcNormalPosition
+  uint64 parent = 16;           // WINDOWINFO.hwndParent
+  uint64 owner = 17;            // GetWindow(hwnd, GW_OWNER)
+  uint32 pid = 18;
+  uint32 tid = 19;
+  string process_path = 20;     // QueryFullProcessImageNameW ("" if denied)
+  uint64 hinstance = 21;        // GetWindowLongPtrW(GWL_HINSTANCE)
+  bool visible = 22;            // IsWindowVisible
+  bool enabled = 23;            // IsWindowEnabled
+  bool maximized = 24;          // IsZoomed
+  bool topmost = 25;            // WS_EX_TOPMOST
+  bool layered = 26;            // WS_EX_LAYERED
+  bool tool_window = 27;        // WS_EX_TOOLWINDOW
+  bool cloaked = 28;            // DWMWA_CLOAKED (UWP suspended etc.)
+  uint32 dpi = 29;              // GetDpiForWindow (worker is per-monitor-v2 aware)
+  uint32 window_type_atom = 30; // WINDOWINFO.atomWindowType
+}
+
+message ProcessWindowGroup {
+  uint32 pid = 1;
+  string process_name = 2;
+  repeated WindowDetail windows = 3;
+}
+
+message ScreenCaptureRequest {
+  string mode = 1;             // "desktop" | "window" | "list" | "displays"
+  string display_id = 2;       // desktop mode: "" (primary), "1", or "DISPLAY1"
+  uint64 hwnd = 3;             // window mode: exact HWND (else pid/title/process_name)
+  uint32 pid = 4;              // window mode: topmost visible window of pid; list mode: filter
+  string window_title = 5;     // window mode: substring match (resolved in the worker)
+  uint32 max_dimension = 6;    // orchestrator-side only; the agent captures native
+  string format = 7;           // "png"
+  bool include_windows = 8;    // carry window telemetry JSON in the capture response
+  bool include_hidden = 9;     // false (default) = visible windows only
+  bool include_details = 10;   // full per-window metadata (default true)
+  string process_name = 11;    // window mode: topmost window of this exe; list mode: filter
+  string query = 12;           // list mode: substring across window titles/classes
+}
+
+message ScreenCaptureResponse {
+  OpStatus status = 1;
+  bytes image_data = 2;        // in-memory PNG bytes (empty for list/displays)
+  string target_type = 3;      // "desktop" | "window" | "displays" | "list"
+  string target_name = 4;      // e.g. "DISPLAY1" or "notepad.exe"
+  uint32 width = 5;
+  uint32 height = 6;
+  uint64 timestamp_unix_ms = 7;
+  string windows_json = 8;     // raw worker telemetry JSON (processes/displays)
+}
+
+message WindowListRequest {
+  uint32 pid = 1;              // 0 = all
+  string process_name = 2;     // filter by exe name (e.g. "cmd.exe")
+  string query = 3;            // substring search across window titles/classes
+  bool include_hidden = 4;     // false (default) = visible windows only
+  bool include_details = 5;    // full metadata per window (default true)
+}
+
+message WindowListResponse {
+  OpStatus status = 1;
+  string windows_json = 2;     // authoritative payload from the session-1 worker
+  uint32 total_windows = 3;    // parsed orchestrator-side
+}
+
+service Agent {
+  rpc Status(StatusRequest) returns (StatusResponse);
+  rpc DriverLoad(DriverLoadRequest) returns (OpStatus);
+  rpc DriverUnload(DriverUnloadRequest) returns (OpStatus);
+  rpc SelfUpdate(SelfUpdateRequest) returns (OpStatus);
+  rpc RecentOps(RecentOpsRequest) returns (RecentOpsResponse);
+  rpc HostInfo(HostInfoRequest) returns (HostInfoResponse);
+  rpc CaptureScreen(ScreenCaptureRequest) returns (ScreenCaptureResponse);
+  rpc ListWindows(WindowListRequest) returns (WindowListResponse);
+}
+
+// --------------------------------------------------------------- Memory ----
+
+enum MemSpace {
+  USER = 0;
+  KERNEL = 1;
+  PHYSICAL = 2;
+}
+
+message MemoryReadRequest {
+  uint32 pid = 1;          // ignored for KERNEL/PHYSICAL
+  uint64 address = 2;
+  uint64 size = 3;         // capped by agent config (default 8 MiB per call)
+  MemSpace space = 4;
+  uint32 addr_width = 5;   // 64 default, 32 reserved
+  bool allow_fault = 6;    // kernel space: permit driver soft-fault of
+                           // non-resident PAGEDATA (default: fail cleanly)
+  bool partial = 7;        // v6 kernel space: per-4KB walk, stop at first
+                           // unmapped page and return the valid prefix
+                           // (STATUS_PARTIAL_COPY). Kills the "1 MB chunk
+                           // fails atomically on one bad page" workflow.
+  uint64 max_bytes = 10;   // v9: driver-side hard byte cap independent of `size`
+                           // (0 = uncapped; when set, clips to min(size, max_bytes))
+}
+message MemoryReadResponse {
+  OpStatus status = 1;
+  bytes data = 2;
+  uint64 read_bytes = 3;
+  uint64 first_bad_offset = 4;  // v6, partial=true only: bytes into the
+                                 // request where the walk stopped (== data.size()
+                                 // when a hole was hit; 0 when the whole range
+                                 // succeeded).
+}
+
+message MemoryWriteRequest {
+  uint32 pid = 1;
+  uint64 address = 2;
+  bytes data = 3;
+  MemSpace space = 4;
+  uint32 addr_width = 5;
+  bool allow_map_write = 6; // physical space: opt into the driver's
+                            // MmMapIoSpaceEx write path (ABI v5). Default
+                            // refused; unmappable pages surface as
+                            // written_bytes < len(data), not an error.
+  // v12: 0 = current/system CR3. Nonzero writes through the caller-supplied
+  // address space (kernel space only; the driver verifies the target CR3
+  // shares the kernel half before swapping).
+  uint64 cr3 = 7;
+  // v12: SUSPEX_MEM_WRF_* bits. Bit0 STRICT_VA: a kernel write faults on
+  // the direct VA path -> STATUS_INVALID_ADDRESS, never the phys-remap
+  // fallback (fallback silently bypasses linear-address watchpoints).
+  uint32 flags = 8;
+}
+message MemoryWriteResponse {
+  OpStatus status = 1;
+  uint64 written_bytes = 2;
+  // v12: which store path ran. 0 unknown (pre-v12 agent/driver),
+  // 1 direct_va (the target linear VA), 2 phys_remap (page-table walk +
+  // physical map — DR watchpoints on the linear address did NOT see this
+  // store), 3 foreign_cr3 (direct VA under the request's cr3).
+  uint32 write_path = 3;
+}
+
+message MemoryAllocRequest {
+  uint32 pid = 1;          // user-mode allocation
+  bool kernel = 2;         // true: pool alloc in kernel, pid ignored
+  uint64 size = 3;
+  uint32 protect = 4;      // Win32 PAGE_* constant, user-mode only
+  uint32 addr_width = 5;
+}
+message MemoryAllocResponse {
+  OpStatus status = 1;
+  uint64 address = 2;
+}
+
+message MemoryFreeRequest {
+  uint32 pid = 1;
+  bool kernel = 2;
+  uint64 address = 3;
+}
+message MemoryFreeResponse { OpStatus status = 1; }
+
+message MemoryProtectRequest {
+  uint32 pid = 1;
+  uint64 address = 2;
+  uint64 size = 3;
+  uint32 protect = 4;
+  uint32 addr_width = 5;
+}
+message MemoryProtectResponse {
+  OpStatus status = 1;
+  uint32 old_protect = 2;
+}
+
+message ModuleInfo {
+  string name = 1;
+  string path = 2;
+  uint64 base = 3;
+  uint64 size = 4;
+  bool kernel = 5;
+}
+message ModulesRequest {
+  uint32 pid = 1;
+  bool kernel = 2;         // true: PsLoadedModuleList walk, pid ignored
+  int32 limit = 3;         // v9: 0 = no cap; agent slices response
+  int32 offset = 4;
+}
+message ModulesResponse {
+  OpStatus status = 1;
+  repeated ModuleInfo modules = 2;
+}
+
+message PatternScanRequest {
+  uint32 pid = 1;
+  uint64 base = 2;         // 0 = scan all committed user space of pid
+  uint64 size = 3;         // 0 = till end of region chain
+  bytes pattern = 4;
+  string mask = 5;         // '?' wildcard, len == pattern length; empty = exact.
+                          // v0.27: the wire mask is byte-granular; nibble
+                          // wildcards from pattern tokens ('6?'/'?F') are
+                          // compiled to '?' client-side and candidates are
+                          // post-verified via mem_read.
+  MemSpace space = 6;      // USER default; KERNEL supported (driver read path)
+  uint32 max_results = 7;  // default 64
+}
+message PatternScanResponse {
+  OpStatus status = 1;
+  repeated uint64 addresses = 2;
+}
+
+// v0.16 (ABI v10): server-streaming pattern scan. Solves the 16 GB
+// kernel-scan blowing the MCP deadline: chunks come back as they land
+// and the orchestrator can tear down the stream mid-scan.
+message PatternScanChunk {
+  OpStatus status = 1;
+  repeated uint64 addresses = 2;   // matches accumulated in THIS chunk
+  uint64 bytes_scanned = 3;        // running total since scan_start
+  uint64 cursor = 4;               // current VA at chunk emission
+  bool done = 5;                   // final chunk (success, cap, or early stop)
+}
+
+message VadEntry {
+  uint64 start = 1;          // inclusive VA
+  uint64 end = 2;            // exclusive VA
+  uint32 protect = 3;        // Win32 PAGE_* (guard/nocache variants included)
+  uint32 vad_type = 4;
+  uint64 commit_charge = 5;
+}
+message VadRequest {
+  uint32 pid = 1;
+  int32 limit = 2;         // v9: 0 = no cap
+  int32 offset = 3;
+}
+message VadResponse {
+  OpStatus status = 1;
+  repeated VadEntry entries = 2;
+}
+
+message HandleEntry {
+  uint64 object = 1;
+  uint64 handle = 2;
+  uint32 granted_access = 3;
+  uint32 type_index = 4;
+  string type_name = 5;
+  string name = 6;           // only when want_names (File objects stay unnamed)
+}
+message HandleListRequest {
+  uint32 pid = 1;
+  bool want_names = 2;       // slow: resolves object names
+  int32 limit = 3;           // v9: 0 = no cap
+  int32 offset = 4;
+}
+message HandleListResponse {
+  OpStatus status = 1;
+  repeated HandleEntry handles = 2;
+}
+
+message ProcessInfo {
+  uint32 pid = 1;
+  uint32 parent_pid = 2;
+  string image_name = 3;
+  // v14: usermode enrichment (NtQuerySystemInformation(SystemProcessInfo))
+  // — present even when the driver is absent, which is exactly when the
+  // caller most needs process discovery. cmdline is empty on protected/PPL
+  // processes and when the request didn't opt in.
+  string cmdline = 4;
+  uint64 create_time_100ns = 5;  // FILETIME ticks since 1601 (SPI CreateTime)
+  uint32 session_id = 6;
+}
+message ListProcessesRequest {
+  int32 limit = 1;           // v9: 0 = no cap
+  int32 offset = 2;
+  // v14: per-pid PEB cmdline walk (OpenProcess + ReadProcessMemory). Slower
+  // on large lists and empty for protected processes — opt-in.
+  bool with_cmdline = 3;
+}
+message ListProcessesResponse {
+  OpStatus status = 1;
+  repeated ProcessInfo processes = 2;
+  // v14: which enumerator produced the rows — "agent" (NtQSI usermode,
+  // no driver needed) or "driver" (last-ditch fallback). Callers use it
+  // to gauge freshness/coverage.
+  string source = 3;
+}
+
+message IatEntry {
+  string dll = 1;              // declared source DLL from the import descriptor
+  string name = 2;             // export name; empty when imported by ordinal
+  uint32 ordinal = 3;          // valid iff name == "" (IMAGE_ORDINAL_FLAG set)
+  uint64 iat_slot = 4;         // VA of the FirstThunk slot in the caller image
+  uint64 resolved = 5;         // pointer currently in the slot
+  string resolved_module = 6;  // module owning `resolved`, empty if none
+  bool hooked = 7;             // basename(resolved_module) != basename(dll)
+}
+message ModuleImportsRequest {
+  uint32 pid = 1;
+  string module = 2;           // basename or full path
+  bool kernel = 3;             // walk kernel view (pid ignored)
+  int32 limit = 4;             // v9: 0 = no cap
+  int32 offset = 5;
+}
+message ModuleImportsResponse {
+  OpStatus status = 1;
+  repeated IatEntry entries = 2;
+}
+
+message ExportEntry {
+  string name = 1;
+  uint32 ordinal = 2;
+  uint64 rva = 3;
+  uint64 address = 4;          // base + rva
+  string forwarder = 5;        // e.g. "api-ms-...!Foo"; empty for regular exports
+}
+message ModuleExportsRequest {
+  uint32 pid = 1;
+  string module = 2;
+  bool kernel = 3;
+  int32 limit = 4;             // v9: 0 = no cap
+  int32 offset = 5;
+}
+message ModuleExportsResponse {
+  OpStatus status = 1;
+  repeated ExportEntry entries = 2;
+}
+
+message HeapBlock {
+  uint64 address = 1;
+  uint64 size = 2;
+  uint32 flags = 3;            // RTL_HEAP_ENTRY flags (BUSY/EXTRA/...)
+}
+message HeapEntry {
+  uint64 handle = 1;           // HEAP* (target VA)
+  uint32 flags = 2;
+  uint64 base = 3;
+  uint64 committed = 4;
+  uint64 reserved = 5;
+  repeated HeapBlock blocks = 6;   // populated iff want_blocks
+}
+message HeapListRequest {
+  uint32 pid = 1;
+  bool want_blocks = 2;
+  uint32 max_blocks = 3;       // per-heap cap, 0 = 4096 default
+}
+message HeapListResponse {
+  OpStatus status = 1;
+  repeated HeapEntry heaps = 2;
+}
+
+// v4 additions: physical-range enumeration and kernel big-pool scan.
+message PhysRangesRequest {
+  int32 limit = 1;             // v9: 0 = no cap
+  int32 offset = 2;
+}
+message PhysRangeEntry {
+  uint64 base = 1;
+  uint64 size = 2;
+  uint32 kind = 3; // 0 = RAM (only kind currently produced)
+}
+message PhysRangesResponse {
+  OpStatus status = 1;
+  repeated PhysRangeEntry ranges = 2;
+}
+
+message PoolScanRequest {
+  uint32 tag_filter = 1;   // 4-char tag packed LE as uint32, or 0 for any
+  bool nonpaged_only = 2;
+  bool paged_only = 3;
+  uint32 max_results = 4;
+  bytes pattern = 5;       // <=16 bytes; empty = no content filter
+  bytes mask = 6;          // same length as pattern; 0 or '?' = wildcard byte
+  uint32 offset = 7;       // start byte of the content window inside each entry
+  uint32 content_span = 8; // bytes to read+scan; <=4096
+}
+message PoolBlock {
+  uint64 virtual_address = 1;
+  uint64 size_in_bytes = 2;
+  uint32 tag = 3;
+  string tag_ascii = 4;    // decoded 4-char pool tag for readability
+  bool nonpaged = 5;
+  uint64 matched_offset = 6; // absolute VA of the pattern hit, 0 when no content filter
+}
+message PoolScanResponse {
+  OpStatus status = 1;
+  repeated PoolBlock entries = 2;
+  uint32 required = 3;    // total big-pool entries seen before filter
+  uint32 considered = 4;  // after tag/paged filter, before content filter
+}
+
+// v5: server-streaming reads for >4 MiB ranges. Removes the manual-chunk
+// dance for callers who want a single logical read (dxgkrnl image dump,
+// full ranged pattern-scan seed, etc.). Reuses MemoryReadRequest; each
+// chunk carries its own offset so a caller can reassemble streams that
+// interleave under retries or reorder in transit.
+message MemoryReadChunk {
+  OpStatus status = 1;    // set on the first (and any error) chunk only
+  uint64 offset = 2;      // bytes from start of the requested range
+  bytes data = 3;         // <= server_chunk_bytes (default 1 MiB)
+  bool eof = 4;           // set on the final chunk (data may still be non-empty)
+}
+
+// v7: VA -> PA translation via the driver's page-table walk. The
+// SUSPEX_FUNC_VA_TRANSLATE IOCTL shipped in ABI v5 (drv_exerciser vatrans
+// exercised it) but had no gRPC surface until v7. v12 adds USER space
+// (pid -> KeStackAttachProcess -> process CR3) and a caller-supplied cr3
+// override for foreign-address-space walks.
+message VaTranslateRequest {
+  MemSpace space = 1;   // KERNEL or USER (v12); PHYSICAL refused
+  uint32 pid = 2;       // USER: process whose tables are walked; 0 = agent's
+  uint64 va = 3;
+  uint64 cr3 = 4;       // v12: explicit CR3 to walk under; 0 = resolved from
+                        // space/pid (system CR3 for KERNEL, process CR3 for USER)
+}
+message VaTranslateResponse {
+  OpStatus status = 1;
+  uint64 pa = 2;
+  bool present = 3;             // page mapped under the walked CR3
+  uint64 cr3 = 4;               // CR3 the walk actually used (v12; 0 pre-v12)
+  uint32 page_size_shift = 5;   // 12 (4 KiB), 21 (2 MiB), 30 (1 GiB); 0 unknown
+}
+
+// v12: per-CPU IDT dump. The driver __sidt's each requested processor and
+// decodes KIDTENTRY64 rows itself — 256 x 16 B per CPU fits the out-buffer
+// without an agent-side kernel read per entry. Row idt_base records the
+// IDTR base of the CPU that row was read on (per-CPU tables differ; a
+// drifted base is a detour signature for the caller to score).
+message IdtListRequest {
+  bool all_cpus = 1;      // false = the servicing CPU's IDT only
+}
+message IdtEntryRow {
+  uint32 cpu = 1;         // processor index the row was read on
+  uint32 vector = 2;
+  uint64 handler_va = 3;  // decoded offset_lo|mid|hi
+  uint32 selector = 4;
+  uint32 ist = 5;
+  uint32 dpl = 6;
+  uint64 idt_base = 7;    // IDTR.Base of the CPU this row came from
+}
+message IdtListResponse {
+  OpStatus status = 1;
+  uint64 idt_base = 2;              // IDTR.Base of the first CPU read
+  uint32 idt_limit = 3;             // its IDTR.Limit (typically 0xFFF)
+  repeated IdtEntryRow entries = 4;
+}
+
+// v7: agent-side memory polling. The agent spawns one worker thread per
+// active watch; each thread MemReads `length` bytes every `interval_ms`
+// via the same routing as Memory.Read (user/kernel/physical), compares
+// with the previous window, and emits a WatchEvent on transition. The
+// worker terminates when duration_s elapses, max_events is reached, the
+// client cancels the stream, the agent shuts down, or too many
+// consecutive read failures accumulate. Agent-side cap on concurrent
+// watches (config SUSPX_MAX_WATCHES, default 8) and an interval floor
+// (config SUSPX_WATCH_MIN_MS, default 10 ms) so a runaway request cannot
+// convert the target into a busy loop.
+message WatchRequest {
+  MemSpace space = 1;         // USER/KERNEL/PHYSICAL — same routing as Memory.Read
+  uint32 pid = 2;             // USER only; 0 for KERNEL/PHYSICAL
+  uint64 address = 3;
+  uint32 length = 4;          // up to 256 bytes — small-object watcher
+  uint32 interval_ms = 5;     // floor at server-side minimum (default 10 ms)
+  uint32 duration_s = 6;      // 0 = server default (60 s), max cap enforced
+  bytes expected_hex = 7;     // empty = report every change; non-empty = report
+                              // only when the current value != expected. Length
+                              // must match `length` when set.
+  uint32 max_events = 8;      // 0 = unlimited (bounded by duration_s + agent cap)
+  string tag = 9;             // free-form label surfaced in each event
+}
+message WatchEvent {
+  OpStatus status = 1;        // set on the first message with ok=true, and on
+                              // termination messages when the watch ended
+                              // uncleanly (read fail, cap hit, etc.)
+  uint64 seq = 2;             // 1-indexed
+  uint64 ts_ms = 3;           // milliseconds since unix epoch
+  bytes prev = 4;             // last known bytes (empty on the first sample)
+  bytes now = 5;              // current bytes
+  bool eof = 6;               // set on the final message
+  string reason = 7;          // populated when eof=true: duration|max_events|
+                              // read_failed|cancelled|agent_shutdown
+  bool read_failed = 8;       // when true, `now` is empty (last MemRead failed)
+}
+
+service Memory {
+  rpc Read(MemoryReadRequest) returns (MemoryReadResponse);
+  rpc Write(MemoryWriteRequest) returns (MemoryWriteResponse);
+  rpc Alloc(MemoryAllocRequest) returns (MemoryAllocResponse);
+  rpc Free(MemoryFreeRequest) returns (MemoryFreeResponse);
+  rpc Protect(MemoryProtectRequest) returns (MemoryProtectResponse);
+  rpc Modules(ModulesRequest) returns (ModulesResponse);
+  rpc Scan(PatternScanRequest) returns (PatternScanResponse);
+  rpc ListProcesses(ListProcessesRequest) returns (ListProcessesResponse);
+  rpc VadList(VadRequest) returns (VadResponse);
+  rpc HandleList(HandleListRequest) returns (HandleListResponse);
+  rpc ModuleImports(ModuleImportsRequest) returns (ModuleImportsResponse);
+  rpc ModuleExports(ModuleExportsRequest) returns (ModuleExportsResponse);
+  rpc HeapList(HeapListRequest) returns (HeapListResponse);
+  rpc PhysicalRanges(PhysRangesRequest) returns (PhysRangesResponse);
+  rpc PoolScan(PoolScanRequest) returns (PoolScanResponse);
+  rpc ReadStream(MemoryReadRequest) returns (stream MemoryReadChunk);
+  rpc VaTranslate(VaTranslateRequest) returns (VaTranslateResponse);          // v7
+  rpc Watch(WatchRequest) returns (stream WatchEvent);                        // v7
+  rpc ThreadList(ThreadListRequest) returns (ThreadListResponse);             // v11
+  rpc ObjEnum(ObjEnumRequest) returns (ObjEnumResponse);                      // v11
+  rpc IdtList(IdtListRequest) returns (IdtListResponse);                      // v12
+  // v0.16 (ABI v10): cancellable server-streaming Scan. Legacy unary
+  // Scan stays for the small whole-space calls. The chunk stream lets
+  // the orchestrator tear down mid-scan without the agent's loop
+  // continuing to sweep — the handler polls ctx->IsCancelled() between
+  // chunks and returns immediately when the client disconnects.
+  rpc ScanStream(PatternScanRequest) returns (stream PatternScanChunk);
+}
+
+// ---------------------------------------------------------------- Debug ----
+
+message Registers {
+  uint64 rax = 1;
+  uint64 rcx = 2;
+  uint64 rdx = 3;
+  uint64 rbx = 4;
+  uint64 rsp = 5;
+  uint64 rbp = 6;
+  uint64 rsi = 7;
+  uint64 rdi = 8;
+  uint64 r8 = 9;
+  uint64 r9 = 10;
+  uint64 r10 = 11;
+  uint64 r11 = 12;
+  uint64 r12 = 13;
+  uint64 r13 = 14;
+  uint64 r14 = 15;
+  uint64 r15 = 16;
+  uint64 rip = 17;
+  uint32 rflags = 18;
+  uint32 dr0 = 19;
+  uint32 dr1 = 20;
+  uint32 dr2 = 21;
+  uint32 dr3 = 22;
+  uint32 dr6 = 23;
+  uint32 dr7 = 24;
+  uint32 gs_base_low = 25;   // informational, read-only
+  uint64 fs_base = 26;
+  uint64 gs_base = 27;
+}
+
+message StepRequest {
+  enum Kind {
+    STEP_INTO = 0;
+    STEP_OVER = 1;
+  }
+  Kind kind = 1;
+  uint64 count = 2; // default 1
+}
+message StepResponse { OpStatus status = 1; }
+
+message GetRegsRequest {}
+message GetRegsResponse {
+  OpStatus status = 1;
+  Registers regs = 2;
+}
+message SetRegsRequest {
+  Registers regs = 1;   // fields present != 0 are applied
+  bool apply_rip = 2;
+  bool apply_rflags = 3;
+  bool apply_dr = 4;
+  bool apply_gprs = 5;
+}
+message SetRegsResponse { OpStatus status = 1; }
+
+message ThreadInfo {
+  uint32 tid = 1;
+  uint64 teb = 2;
+  uint32 suspend_count = 3;
+  uint64 start_address = 4;
+}
+message GetThreadsRequest {}
+message GetThreadsResponse {
+  OpStatus status = 1;
+  repeated ThreadInfo threads = 2;
+  uint32 current_tid = 3;
+}
+
+message StackFrame {
+  uint64 frame = 1;
+  uint64 return_address = 2;
+  string symbol = 3;
+  uint64 displacement = 4;
+  string module = 5;
+}
+message StacktraceRequest {
+  uint32 max_frames = 1; // default 32
+}
+message StacktraceResponse {
+  OpStatus status = 1;
+  repeated StackFrame frames = 2;
+}
+
+message MemoryRegionsRequest {
+  uint32 pid = 1;
+  int32 limit = 2;             // v9: 0 = no cap
+  int32 offset = 3;
+}
+message MemoryRegion {
+  uint64 base = 1;
+  uint64 size = 2;
+  uint32 state = 3;
+  uint32 protect = 4;
+  uint32 type = 5;
+  string module = 6;
+}
+message MemoryRegionsResponse {
+  OpStatus status = 1;
+  repeated MemoryRegion regions = 2;
+}
+
+message DebugEvent {
+  enum Kind {
+    BREAKPOINT_SW = 0;
+    BREAKPOINT_HW = 1;
+    EXCEPTION = 2;
+    PROCESS_EXIT = 3;
+    THREAD_CREATE = 4;
+    THREAD_EXIT = 5;
+    MODULE_LOAD = 6;
+    SESSION_STATUS = 7;
+  }
+  uint64 seq = 1;
+  Kind kind = 2;
+  uint32 tid = 3;
+  uint64 address = 4;
+  int32 exception_code = 5;
+  string description = 6;
+  uint64 timestamp_unix = 7;
+  uint32 pid = 8;   // v12: owning process (single-session, but explicit)
+}
+
+message LaunchRequest {
+  string cmdline = 1;
+  string working_dir = 2;
+  bool break_on_entry = 3;  // initial breakpoint event
+  uint32 addr_width = 4;
+}
+message LaunchResponse {
+  OpStatus status = 1;
+  uint32 pid = 2;
+  uint32 initial_tid = 3;
+}
+
+message AttachRequest {
+  uint32 pid = 1;
+  bool monitor = 2; // auto-resume bp/exception hits instead of staying
+                    // stopped — passive-observation mode (bp_manage events)
+}
+message DetachRequest {
+  bool kill = 1; // false: detach cleanly, true: terminate
+}
+message ContinueRequest {}
+message DebugReadRequest {
+  uint64 address = 1;
+  uint64 size = 2;
+}
+message DebugReadResponse {
+  OpStatus status = 1;
+  bytes data = 2;
+}
+message DebugWriteRequest {
+  uint64 address = 1;
+  bytes data = 2;
+}
+message DebugWriteResponse { OpStatus status = 1; }
+
+message StreamDebugEventsRequest {
+  uint64 from_seq = 1;   // 0 = live from now; >0 replays buffered events first
+}
+
+message ExecuteCommandRequest {
+  string command = 1;    // raw dbgeng command (e.g. "uf ntdll!NtCreateFile")
+}
+message ExecuteCommandResponse {
+  OpStatus status = 1;
+  string output = 2;
+}
+
+service Debug {
+  rpc Launch(LaunchRequest) returns (LaunchResponse);
+  rpc Attach(AttachRequest) returns (OpStatus);
+  rpc Detach(DetachRequest) returns (OpStatus);
+  rpc Continue(ContinueRequest) returns (OpStatus);
+  rpc Step(StepRequest) returns (StepResponse);
+  rpc GetRegs(GetRegsRequest) returns (GetRegsResponse);
+  rpc SetRegs(SetRegsRequest) returns (SetRegsResponse);
+  rpc GetThreads(GetThreadsRequest) returns (GetThreadsResponse);
+  rpc Stacktrace(StacktraceRequest) returns (StacktraceResponse);
+  rpc ReadMemory(DebugReadRequest) returns (DebugReadResponse);
+  rpc WriteMemory(DebugWriteRequest) returns (DebugWriteResponse);
+  rpc Regions(MemoryRegionsRequest) returns (MemoryRegionsResponse);
+  rpc StreamEvents(StreamDebugEventsRequest) returns (stream DebugEvent);
+  rpc ExecuteCommand(ExecuteCommandRequest) returns (ExecuteCommandResponse);
+}
+
+//                                                            Breakpoints ----
+
+message BpAddRequest {
+  enum Kind {
+    SW = 0;   // int3 via debug engine
+    HW = 1;   // DR0-3 via driver (kernel targets) or dbgeng data bp (user)
+  }
+  Kind kind = 1;
+  uint64 address = 2;
+  uint32 slot = 3;         // HW: 0-3
+  uint32 size = 4;         // HW: 1,2,4,8
+  string access = 5;       // HW: "exec", "write", "rw"
+  bool kernel_target = 6;  // v0.9+: display hint only. HW BPs always go
+                           // through the driver — kernel_target is kept
+                           // for backward compat + bp_list annotation.
+  uint32 tid = 7;          // HW: 0 = all threads of process (or all threads
+                           // system-wide when global=true)
+  uint32 pid = 8;          // HW: owning process (ignored when global=true)
+  bool global = 9;         // v6+: system-wide HW BP. Arms every thread of
+                           // every process + PsSetCreateThreadNotifyRoutine
+                           // catches newborns regardless of parent pid. Driver
+                           // caps concurrent global BPs at 2.
+  bool dangerous_ok = 10;  // v6+: bypass the PatchGuard-expected refusal
+                           // (lab-only, PG-defanged VMs). Ignored unless
+                           // global=true.
+  bool via_debugger = 11;  // v12: route an HW bp through the dbgeng
+                           // debug port (AddBreakpoint2/DATA) instead of
+                           // the driver — used by the bp-events debug-port
+                           // fallback on hypervisor guests. Requires an
+                           // attached session on `pid`.
+}
+message BpAddResponse {
+  OpStatus status = 1;
+  uint32 bp_id = 2;
+}
+message BpRemoveRequest { uint32 bp_id = 1; }
+message BpListRequest {}
+message BpEntry {
+  uint32 bp_id = 1;
+  string kind = 2;
+  uint64 address = 3;
+  uint32 slot = 4;
+  string access = 5;
+  bool enabled = 6;
+  string description = 7;
+  uint32 pid = 8;   // v12: driver-side bps carry their scope
+  uint32 tid = 9;
+  uint32 size = 10;
+}
+message BpListResponse {
+  OpStatus status = 1;
+  repeated BpEntry breakpoints = 2;
+}
+message BpSetEnabledRequest {
+  uint32 bp_id = 1;
+  bool enabled = 2;
+}
+
+service Breakpoints {
+  rpc Add(BpAddRequest) returns (BpAddResponse);
+  rpc Remove(BpRemoveRequest) returns (OpStatus);
+  rpc List(BpListRequest) returns (BpListResponse);
+  rpc SetEnabled(BpSetEnabledRequest) returns (OpStatus);
+}
+
+// ----------------------------------------------------------------- Files ----
+
+message UploadHeader {
+  string path = 1;
+  uint64 size = 2;
+}
+message UploadChunk {
+  oneof payload {
+    UploadHeader header = 1;
+    bytes data = 2;
+  }
+}
+message UploadResponse {
+  OpStatus status = 1;
+  string path = 2;
+  string sha256 = 3;
+  uint64 bytes_written = 4;
+}
+
+message DumpedSection {
+  string name = 1;        // section name (8-byte field, NUL-padded)
+  uint64 va = 2;          // section RVA within the image
+  uint64 size = 3;        // virtual size
+  uint64 dumped_bytes = 4; // bytes actually read; the tail reads as zeros
+  bool complete = 5;
+}
+
+message DownloadHeader {
+  uint64 size = 1;
+  string sha256 = 2;
+  string notes = 3;     // dump metadata / repair notes
+  repeated DumpedSection sections = 4; // v0.24: per-section residency map
+  // v14: content came from a VSS shadow copy because the live file is
+  // share-mode-0 locked. Bytes are a point-in-time snapshot, not the live
+  // file — the caller should expect staleness vs. concurrent writers.
+  bool via_snapshot = 5;
+}
+message DownloadChunk {
+  oneof payload {
+    DownloadHeader header = 1;
+    bytes data = 2;
+  }
+}
+message DownloadRequest {
+  string path = 1;
+  uint64 offset = 2;   // default 0
+  uint64 length = 3;   // 0 = to EOF
+}
+message DumpModuleRequest {
+  uint32 pid = 1;
+  string module = 2;   // name or full path
+  bool quiesce = 3;    // suspend target around the dump for a consistent image
+  string dump_type = 4; // "as_loaded" (default) | "unrelocated" (reverse relocs)
+  bool kernel = 5;      // dump a kernel module from the PsLoadedModuleList view;
+                        // pid ignored, quiesce skipped. Discarded PAGE/INIT
+                        // sections read back as zeros.
+}
+message HashRequest { string path = 1; }
+message HashResponse {
+  OpStatus status = 1;
+  string sha256 = 2;
+  uint64 size = 3;
+  // v14: hashed a VSS shadow copy (share-mode-0 locked live file). Digest is
+  // of the snapshot, which can differ from the live file's final bytes.
+  bool via_snapshot = 4;
+}
+message ListDirRequest {
+  string path = 1;
+  bool recursive = 2;
+  uint32 max_entries = 3;
+}
+message DirEntry {
+  string name = 1;
+  bool dir = 2;
+  uint64 size = 3;
+  uint64 mtime_unix = 4;
+}
+message ListDirResponse {
+  OpStatus status = 1;
+  repeated DirEntry entries = 2;
+}
+message DeleteRequest {
+  string path = 1;
+  bool no_trash = 2; // default: move to agent trash dir; true = hard delete
+}
+
+// v7: agent-local file tail. Fixes the "234 MB kernel log pull" pattern —
+// the agent opens the file with FILE_SHARE_READ|WRITE|DELETE, seeks from
+// end, reads up to `bytes` (server caps at 4 MiB per call), and returns
+// only the tail. When `line_align=true` the first partial line is stripped
+// so the response is line-clean. include_rotated=true also stitches in the
+// tail of <path>.old (see agent kernel-log rotation) with a marker.
+message LogTailRequest {
+  string path = 1;
+  uint32 bytes = 2;           // 0 = 64 KiB default; server caps at 4 MiB
+  bool from_end = 3;          // default true; false = read [0..bytes] from the start
+  bool line_align = 4;        // strip partial first line so response is line-clean
+  bool include_rotated = 5;   // also fetch and stitch <path>.old
+}
+message LogTailResponse {
+  OpStatus status = 1;
+  bytes data = 2;
+  uint64 total_size = 3;      // total file size at read time
+  uint64 tail_offset = 4;     // where the tail starts in the file
+  bool truncated = 5;         // true when total_size > bytes returned
+  uint64 rotated_size = 6;    // size of <path>.old when include_rotated=true
+  // v14: tail read through a VSS shadow copy (share-mode-0 locked file).
+  // total_size is the snapshot size; the live file may already be larger.
+  bool via_snapshot = 7;
+}
+
+// v8: server-streaming `tail -f` — the agent opens the file (same share
+// flags as LogTail) and pushes chunks as they land. Kills the "wedge lost
+// the verdict" pattern: writes-per-line to disk survive the wedge, the
+// stream lets the orchestrator SEE them without any polling. Rotation is
+// detected on size shrink and reported via `rotated=true` chunks.
+// Concurrency-capped agent-side by SUSPX_MAX_FOLLOWS (default 8).
+message LogFollowRequest {
+  string path = 1;
+  uint64 from_offset = 2;         // 0 = start of file, UINT64_MAX = start at EOF
+  uint32 initial_tail_bytes = 3;  // when from_offset==0: seek back this many bytes
+                                  //   before starting the follow (0 = start at 0)
+  uint32 poll_interval_ms = 4;    // 0 = 200 ms default; floor at 10 ms
+  uint32 max_chunk_bytes = 5;     // 0 = 64 KiB default; capped at 4 MiB
+  bool line_align = 6;            // trim to last '\n' each chunk
+  bool follow_rotation = 7;       // reopen path when size shrinks
+  uint32 duration_s = 8;          // 0 = 600 s default; hard cap 3600 s
+  uint64 max_bytes = 9;           // 0 = unlimited within duration
+}
+message LogFollowChunk {
+  OpStatus status = 1;    // set on the first message; and on any terminal chunk
+  uint64 offset = 2;      // absolute file offset of this chunk's first byte
+  bytes data = 3;
+  bool rotated = 4;       // true = reopened after a rotation (data may be empty)
+  uint64 new_total_size = 5;  // file size after this chunk (0 if unknown)
+  bool eof = 6;
+  string reason = 7;      // eof=true: duration|max_bytes|cancelled|io_error|
+                          //           path_gone|agent_shutdown|cap
+  // v14: stat-follow degrade. true = the file can't be opened for content
+  // (share-mode-0 lock) — this chunk reports a metadata change only
+  // (size/mtime via GetFileAttributesExW); `data` is empty and `offset`
+  // stays pinned. The follow keeps retrying the real open and returns to
+  // data chunks the moment the lock clears.
+  bool stat_only = 8;
+}
+
+service Files {
+  rpc Upload(stream UploadChunk) returns (UploadResponse);
+  rpc Download(DownloadRequest) returns (stream DownloadChunk);
+  rpc DumpModule(DumpModuleRequest) returns (stream DownloadChunk);
+  rpc Hash(HashRequest) returns (HashResponse);
+  rpc ListDir(ListDirRequest) returns (ListDirResponse);
+  rpc Delete(DeleteRequest) returns (OpStatus);
+  rpc LogTail(LogTailRequest) returns (LogTailResponse);        // v7
+  rpc LogFollow(LogFollowRequest) returns (stream LogFollowChunk); // v8
+}
+
+// ------------------------------------------------------------------ Exec ----
+
+enum ShellKind {
+  CMD = 0;
+  POWERSHELL = 1;
+}
+
+message RunExeRequest {
+  string exe = 1;
+  repeated string args = 2;
+  string working_dir = 3;
+  uint64 timeout_ms = 4;      // 0 = 30s default
+  bool hidden_window = 5;     // default true
+}
+message RunExeResponse {
+  OpStatus status = 1;
+  uint32 exit_code = 2;
+  bytes stdout_data = 3;
+  bytes stderr_data = 4;
+  uint64 timed_out = 5;
+  // v7: true when the agent had to kill the child on timeout. stdout_data
+  // / stderr_data still carry whatever flushed before the kill.
+  bool killed = 6;
+}
+
+message RunShellRequest {
+  ShellKind shell = 1;
+  string command = 2;
+  string working_dir = 3;
+  uint64 timeout_ms = 4;
+}
+message RunShellResponse {
+  OpStatus status = 1;
+  uint32 exit_code = 2;
+  bytes output = 3;
+}
+
+message StartShellRequest {
+  ShellKind shell = 1;
+  string working_dir = 2;
+}
+message StartShellResponse {
+  OpStatus status = 1;
+  uint32 session_id = 2;
+}
+message WriteConsoleRequest {
+  uint32 session_id = 1;
+  bytes input = 2;
+}
+message ReadConsoleRequest {
+  uint32 session_id = 1;
+  uint64 max_bytes = 2;
+  uint64 timeout_ms = 3;
+}
+message ConsoleData {
+  OpStatus status = 1;
+  bytes data = 2;
+  bool eof = 3;
+  uint32 session_id = 4;
+}
+message ShellSessionRequest { uint32 session_id = 1; }
+message StreamConsoleRequest { uint32 session_id = 1; }
+
+message KillProcessRequest { uint32 pid = 1; }
+message PidRequest { uint32 pid = 1; }
+
+// v7: first-class detached execution. Spawns with CREATE_NEW_PROCESS_GROUP;
+// stdout/stderr redirected to per-handle files under
+// %ProgramData%\suspex\detached\<handle_id>\{stdout,stderr}.log unless
+// overridden. Returns immediately with a handle for poll/tail/kill.
+message RunDetachedRequest {
+  string cmdline = 1;
+  string working_dir = 2;
+  string stdout_path = 3;      // empty = default under ProgramData
+  string stderr_path = 4;
+  bool hidden_window = 5;      // default true
+}
+message RunDetachedResponse {
+  OpStatus status = 1;
+  string handle_id = 2;        // 24-char hex, agent-generated
+  uint32 pid = 3;
+  string stdout_path = 4;      // absolute path chosen by the agent
+  string stderr_path = 5;
+  uint64 started_ts = 6;       // unix millis
+}
+message DetachedHandleRequest { string handle_id = 1; }
+message DetachedStatusResponse {
+  OpStatus status = 1;
+  bool running = 2;
+  uint32 exit_code = 3;        // valid when running=false
+  uint64 stdout_size = 4;
+  uint64 stderr_size = 5;
+  uint64 exited_ts = 6;        // unix millis, 0 while running
+  string stdout_path = 7;
+  string stderr_path = 8;
+  uint32 pid = 9;
+}
+message DetachedTailRequest {
+  string handle_id = 1;
+  uint32 bytes = 2;            // 0 = 64 KiB default
+  bool stderr_too = 3;         // include stderr tail
+}
+message DetachedTailResponse {
+  OpStatus status = 1;
+  bytes stdout_tail = 2;
+  bytes stderr_tail = 3;
+  uint64 stdout_total = 4;
+  uint64 stderr_total = 5;
+}
+
+// v14: enumerate live shell session ids — a caller that lost track (or hit
+// a transport arg-marshaling bug that delivered session_id=0) can recover
+// without spawning a new shell.
+message ListShellsRequest {}
+message ListShellsResponse {
+  OpStatus status = 1;
+  repeated uint32 session_ids = 2;
+}
+
+// v15: Exec.CallFunction — synchronous in-context function call. CALL_USER
+// injects a param-block trampoline + remote thread in pid; CALL_KERNEL runs
+// Target inside a driver work item at PASSIVE_LEVEL. Both return rax plus
+// failure detail. Gated by security.allow_function_call (default off) — this
+// is the strongest actuator in the stack.
+enum CallSpace {
+  CALL_USER = 0;
+  CALL_KERNEL = 1;
+}
+
+message CallFunctionRequest {
+  uint64 pid = 1;                 // CALL_USER only (ignored for CALL_KERNEL)
+  uint64 target_va = 2;           // function VA in the call's space
+  repeated fixed64 args = 3;      // ms64 order; <= 16 (4 regs + 12 stack)
+  CallSpace space = 4;
+  uint32 timeout_ms = 5;          // 0 = 30 s default
+  uint32 flags = 6;               // bit0 kill_on_timeout (user);
+                                  // bit1 force (kernel: skip VA checks)
+}
+message CallFunctionResponse {
+  OpStatus status = 1;            // transport-level op result (arg errors etc.)
+  uint64 return_value = 2;        // rax / function return
+  uint32 last_error = 3;          // user: TEB LastErrorValue post-call
+  uint64 exit_code = 4;           // user: thread exit code (NTSTATUS when crashed)
+  bool timed_out = 5;
+  bool exception = 6;             // kernel: SEH caught; user: exit_code in error range
+  uint64 exception_code = 7;
+  uint64 thread_tid = 8;          // user: spawned tid (post-timeout inspection)
+  uint64 stub_va = 9;             // user: stub+param page (cleanup on timeout)
+}
+
+service Exec {
+  rpc RunExe(RunExeRequest) returns (RunExeResponse);
+  rpc RunShell(RunShellRequest) returns (RunShellResponse);
+  rpc StartShell(StartShellRequest) returns (StartShellResponse);
+  rpc ConsoleWrite(WriteConsoleRequest) returns (OpStatus);
+  rpc ConsoleRead(ReadConsoleRequest) returns (ConsoleData);
+  rpc StopShell(ShellSessionRequest) returns (OpStatus);
+  rpc StreamConsole(StreamConsoleRequest) returns (stream ConsoleData);
+  rpc ListShells(ListShellsRequest) returns (ListShellsResponse); // v14
+  rpc KillProcess(KillProcessRequest) returns (OpStatus);
+  rpc Suspend(PidRequest) returns (OpStatus); // NtSuspendProcess (target quiescence)
+  rpc Resume(PidRequest) returns (OpStatus);  // NtResumeProcess
+  // v15: synchronous in-context function call (remote thread for CALL_USER,
+  // driver work item for CALL_KERNEL). Gated by security.allow_function_call.
+  rpc CallFunction(CallFunctionRequest) returns (CallFunctionResponse);
+  // v7: detached execution family — see RunDetachedRequest above.
+  rpc RunDetached(RunDetachedRequest) returns (RunDetachedResponse);
+  rpc DetachedStatus(DetachedHandleRequest) returns (DetachedStatusResponse);
+  rpc DetachedTail(DetachedTailRequest) returns (DetachedTailResponse);
+  rpc DetachedKill(DetachedHandleRequest) returns (OpStatus);
+}
+
+// ---------------------------------------------------------------- Registry ----
+//
+// User-mode wrapper over the standard Reg* API. Runs in the agent (SYSTEM
+// context when the agent is a service; otherwise the agent's user token).
+// hive = HKLM | HKCU | HKCR | HKU | HKCC.
+// wow64_32 = true opens the 32-bit view (KEY_WOW64_32KEY); otherwise the
+// native view is used.
+
+// v5: impersonation of another user's hive (needs the SuspexAgent to run
+// as SYSTEM or hold SeImpersonatePrivilege). Use "user_by_pid:<pid>" to
+// pick up an interactively-logged user's token from any process they own,
+// or "user_by_sid:<S-1-5-...>" to walk sessions for one matching the SID.
+// Empty (default) = agent's own token (SYSTEM under the service).
+
+message RegGetRequest {
+  string hive = 1;
+  string subkey = 2;
+  string value = 3;
+  bool wow64_32 = 4;
+  string impersonate = 5;  // "" | "user_by_pid:<pid>" | "user_by_sid:<sid>"
+}
+message RegGetResponse {
+  OpStatus status = 1;
+  uint32 type = 2;       // REG_SZ=1, REG_EXPAND_SZ=2, REG_BINARY=3, REG_DWORD=4, REG_QWORD=11, REG_MULTI_SZ=7 ...
+  bytes data = 3;        // raw bytes as returned by RegQueryValueExW
+  string data_str = 4;   // decoded UTF-16LE for REG_SZ / REG_EXPAND_SZ / (first item of) REG_MULTI_SZ
+  uint64 data_qword = 5; // decoded for REG_DWORD (32-bit widened) / REG_QWORD; else 0
+  repeated string data_multi_sz = 6; // populated only for REG_MULTI_SZ
+}
+message RegSetRequest {
+  string hive = 1;
+  string subkey = 2;
+  string value = 3;
+  uint32 type = 4;
+  bytes data = 5;
+  bool wow64_32 = 6;
+  bool create_subkey = 7; // RegCreateKeyEx vs RegOpenKeyEx
+  string impersonate = 8;
+}
+message RegSetResponse { OpStatus status = 1; }
+message RegEnumRequest {
+  string hive = 1;
+  string subkey = 2;
+  bool wow64_32 = 3;
+  bool want_subkeys = 4;
+  bool want_values = 5;
+  string impersonate = 6;
+}
+message RegValueMeta {
+  string name = 1;
+  uint32 type = 2;
+  uint32 size = 3;
+}
+message RegEnumResponse {
+  OpStatus status = 1;
+  repeated string subkeys = 2;
+  repeated RegValueMeta values = 3;
+}
+message RegDeleteRequest {
+  string hive = 1;
+  string subkey = 2;
+  string value = 3;      // empty -> delete the subkey; non-empty -> delete just the value
+  bool recursive = 4;    // subkey delete: recurse via SHDeleteKey semantics
+  bool wow64_32 = 5;
+  string impersonate = 6;
+}
+message RegDeleteResponse { OpStatus status = 1; }
+
+service Registry {
+  rpc Get(RegGetRequest) returns (RegGetResponse);
+  rpc Set(RegSetRequest) returns (RegSetResponse);
+  rpc Enum(RegEnumRequest) returns (RegEnumResponse);
+  rpc Delete(RegDeleteRequest) returns (RegDeleteResponse);
+}
+
+// --------------------------------------------------------------- Watchdog ----
+//
+// v8: wedge → bugcheck watchdog. Arm registers an id + deadline; the driver's
+// system thread KeBugCheckEx()'s when the deadline passes without a Kick. Use
+// auto-kick from the orchestrator for continuous coverage during a session —
+// any wedge in the LLM loop / harness turns into an analyzable dump instead
+// of a silent hang. The four bug-check arguments (Id, DeadlineUs, LastKickUs,
+// Cookie) make the dump self-identify as ours under `!analyze -v`.
+
+message WdgArmRequest {
+  uint32 id = 1;              // caller-chosen nonzero id
+  uint32 deadline_ms = 2;     // 1..3_600_000
+  uint32 bugcheck_code = 3;   // 0 = 0xE2 MANUALLY_INITIATED_CRASH
+  uint32 flags = 4;           // 1 = replace existing entry with same id
+  uint64 cookie = 5;          // opaque; echoed into the dump as arg4
+  string label = 6;           // <= 31 chars; truncated server-side
+}
+message WdgArmResponse { OpStatus status = 1; }
+
+message WdgKickRequest {
+  uint32 id = 1;
+  uint32 deadline_ms = 2;     // 0 = keep existing deadline; > 0 = reset to this
+  uint64 cookie = 3;          // 0 = keep existing cookie
+}
+message WdgKickResponse {
+  OpStatus status = 1;
+  uint64 kick_count = 2;
+  uint64 last_kick_us = 3;
+  uint64 deadline_us = 4;     // absolute QPC-us after this kick
+}
+
+message WdgDisarmRequest { uint32 id = 1; }
+message WdgListRequest {}
+
+message WdgEntry {
+  uint32 id = 1;
+  uint32 bugcheck_code = 2;
+  uint64 deadline_us = 3;     // absolute QPC-us
+  uint64 last_kick_us = 4;
+  uint64 kick_count = 5;
+  uint64 cookie = 6;
+  uint64 armed_us = 7;
+  string label = 8;
+  int64 remaining_ms = 9;     // signed; negative = overdue at read time
+}
+message WdgListResponse {
+  OpStatus status = 1;
+  repeated WdgEntry entries = 2;
+  uint64 now_us = 3;          // driver's QPC-us at read time
+}
+
+service Watchdog {
+  rpc Arm(WdgArmRequest) returns (WdgArmResponse);
+  rpc Kick(WdgKickRequest) returns (WdgKickResponse);
+  rpc Disarm(WdgDisarmRequest) returns (OpStatus);
+  rpc List(WdgListRequest) returns (WdgListResponse);
+}
+
+// ============================================================================
+// v0.20 (ABI v11): agent primitives round — hands (Device.Ioctl), eyes
+// (Memory.ThreadList, Memory.ObjEnum), ears (Events stream), telemetry
+// (Telemetry.Providers/Sessions). Device/Telemetry/ThreadList are
+// usermode-only (no driver); ObjEnum and the Events feed are driver-backed.
+// ============================================================================
+
+// Device: send an arbitrary IOCTL to a device on the target. The agent runs
+// as SYSTEM, so both DOS-style symlink paths and raw device-object paths
+// are openable via NtCreateFile. SAFETY: this is an actuator — a bad IOCTL can
+// bugcheck the target; the orchestrator gates it behind
+// security.allow_ioctl_send (default false) and the destructive gate.
+service Device {
+  rpc Ioctl(DeviceIoctlRequest) returns (DeviceIoctlResponse);
+}
+
+message DeviceIoctlRequest {
+  string device = 1;       // "\.\Name" symlink OR "\Device\Name" object path
+  uint32 code = 2;         // CTL_CODE (must be >= 0x10000)
+  bytes in_buffer = 3;     // input payload (may be empty)
+  uint32 out_size = 4;     // output buffer size to allocate (agent caps it)
+  uint32 timeout_ms = 5;   // 0 = agent default (10s)
+}
+
+message DeviceIoctlResponse {
+  OpStatus status = 1;
+  bytes out_buffer = 2;    // whatever the driver returned
+  uint32 bytes_returned = 3;
+  uint32 last_error = 4;   // Win32 error when the send itself failed
+}
+
+// Telemetry: read-only ETW inventory — "what telemetry exists / who is
+// watching". Query only; starting trace sessions is out of scope (the
+// Events feed covers the kernel-side notification need).
+service Telemetry {
+  rpc Providers(EtwProvidersRequest) returns (EtwProvidersResponse);
+  rpc Sessions(EtwSessionsRequest) returns (EtwSessionsResponse);
+}
+
+message EtwProvidersRequest {
+  string name_filter = 1;  // case-insensitive substring; empty = all
+}
+message EtwProviderInfo {
+  string guid = 1;
+  string name = 2;
+}
+message EtwProvidersResponse {
+  OpStatus status = 1;
+  repeated EtwProviderInfo providers = 2;
+  uint32 count = 3;
+  bool truncated = 4;
+}
+message EtwSessionsRequest {
+  string name_filter = 1;
+}
+message EtwSessionInfo {
+  string name = 1;         // logger session name
+  uint64 logger_id = 2;
+  uint32 buffers_written = 3;
+  uint32 buffers_lost = 4;
+  uint64 events_lost = 5;
+  uint32 loggers = 6;      // providers attached (best effort)
+}
+message EtwSessionsResponse {
+  OpStatus status = 1;
+  repeated EtwSessionInfo sessions = 2;
+  uint32 count = 3;
+}
+
+// Memory.ThreadList: per-thread inventory. Agent-side base path uses
+// NtQuerySystemInformation(SystemProcessInformation) — works without the
+// driver. The driver-side enrichment (ETHREAD Win32StartAddress etc.) rides
+// the same RPC when the driver is up (kernel=true). (The Debug service's
+// ThreadInfo covers attached-process threads; this is the system-wide view.)
+message ThreadListRequest {
+  uint32 pid = 1;          // 0 = every process
+  bool kernel = 2;         // driver-backed walk when true (ABI v11 driver)
+  // v14: capture a CONTEXT register frame per thread via
+  // SuspendThread+GetThreadContext+ResumeThread — pure usermode, no driver,
+  // no dbgeng attach (the "wedged process" snapshot path). Threads of the
+  // agent itself are skipped.
+  bool with_context = 3;
+}
+message SysThreadInfo {
+  uint32 tid = 1;
+  uint32 pid = 2;
+  uint64 start_va = 3;     // thread start address (SystemThreadInformation)
+  uint32 state = 4;        // KTHREAD_STATE
+  uint32 wait_reason = 5;
+  int32 base_priority = 6;
+  uint64 win32_start_va = 7;   // driver-backed only; 0 when unavailable
+  uint64 teb = 8;              // driver-backed only; 0 when unavailable
+  // v14: populated only when with_context was set and the thread could be
+  // opened+suspended (empty map otherwise). Keys are CONTEXT register
+  // names (rip, rsp, rbp, rax..r15, eflags, segs).
+  map<string, uint64> context_regs = 9;
+}
+message ThreadListResponse {
+  OpStatus status = 1;
+  repeated SysThreadInfo threads = 2;
+  uint32 count = 3;
+  bool truncated = 4;
+  string source = 5;       // "agent" (NtQuerySystemInformation) | "driver"
+}
+
+// Memory.ObjEnum: kernel object-directory enumeration (\Device, \Driver,
+// \FileSystem, \BaseNamedObjects, \Callback, \ObjectTypes). Driver-side uses
+// ZwOpenDirectoryObject + ZwQueryDirectoryObject — version-proof, no struct
+// offsets. Depth/entry caps are enforced driver-side.
+message ObjEnumRequest {
+  string path = 1;         // e.g. "\Device", "\Driver"; leading "\" required
+  uint32 depth = 2;        // 1 = flat listing (cap 2)
+  uint32 max_entries = 3;  // agent caps at 4096
+}
+message ObjEntry {
+  string name = 1;
+  string type = 2;         // object type name ("Device", "Driver", ...)
+}
+message ObjEnumResponse {
+  OpStatus status = 1;
+  repeated ObjEntry entries = 2;
+  uint32 count = 3;
+  bool truncated = 4;
+}
+
+// Events: target-initiated kernel notifications (the "ears"). The driver
+// registers PsSet{CreateProcess,CreateThread,LoadImage}NotifyRoutine and
+// rings events into a bounded buffer; the agent drains it and streams to the
+// orchestrator. The orchestrator holds the stream (MCP clients cannot) and
+// re-serves via event_manage poll.
+//
+// v12 (ABI v11): kernel HW-BP hit observability. EVENTS_KIND_BP_HIT
+// rides the same ring; subscribing the class installs the driver's
+// per-CPU int1 (IDT vector 1) hook — PatchGuard-sensitive, refused under
+// HVCI, and gated by `dangerous_ok` on the request (maps to
+// SUSPEX_NOTIFY_FLAG_BP_HOOK_OK). Poll/Stream auto-subscribe the BP class
+// when kinds_mask has bit (1<<6); hits surface on SuspexEvent
+// address/dr6/bp_id/slot/access/irql fields.
+service Events {
+  rpc Stream(EventsStreamRequest) returns (stream EventsStreamChunk);
+  rpc Poll(EventsPollRequest) returns (EventsPollResponse);
+  rpc Stats(EventsStatsRequest) returns (EventsStatsResponse);
+  rpc Disable(OpStatus) returns (OpStatus);   // v11: unregister notify callbacks
+}
+message SuspexEvent {
+  OpStatus status = 1;
+  uint64 seq = 2;          // monotonic per-boot driver sequence
+  uint64 ts_ms = 3;        // agent-side unix ms when drained
+  EventsKind kind = 4;
+  uint32 pid = 5;
+  uint32 parent_pid = 6;
+  uint32 tid = 7;
+  string image = 8;        // image/driver path (UTF-8, best effort)
+  string cmdline = 9;      // process-create only (may be empty)
+  bool dropped = 10;       // true when the driver ring overwrote events
+  // ---- v12 BP_HIT payload (zero for other kinds) ----
+  uint64 address = 11;     // faulting RIP
+  uint64 dr6 = 12;         // raw DR6 at trap entry
+  uint32 bp_id = 13;       // matched suspex bp id (0 = table lock skipped)
+  uint32 slot = 14;        // DR slot 0-3 (0xFF = unresolved)
+  uint32 access = 15;      // matched SUSPEX_HW_* (0=exec 1=write 2=rw)
+  uint32 irql = 16;        // KeGetCurrentIrql() at hit
+}
+// kept separate from the message so adding kinds stays wire-compatible
+enum EventsKind {
+  EVENTS_KIND_UNSPECIFIED = 0;
+  EVENTS_PROC_CREATE = 1;
+  EVENTS_PROC_EXIT = 2;
+  EVENTS_IMAGE_LOAD = 3;
+  EVENTS_THREAD_CREATE = 4;
+  EVENTS_THREAD_EXIT = 5;
+  EVENTS_KIND_BP_HIT = 6;  // v12: kernel HW-BP hit (int1 hook)
+}
+message EventsStreamRequest {
+  uint32 kinds_mask = 1;   // bitmask of (1 << EventsKind); 0 = all.
+                         // NOTE: bit 6 (BP_HIT) additionally installs the
+                         // int1 hook — see dangerous_ok.
+  uint32 interval_ms = 2;  // drain interval, default 250
+  uint32 duration_s = 3;   // 0 = until client cancels
+  uint32 max_events = 4;   // 0 = unlimited (bounded by duration)
+  bool dangerous_ok = 5;   // v12: consent for the IDT[1] hook when the
+                           // mask includes BP_HIT (PatchGuard-sensitive,
+                           // lab-only). Without it the BP class is refused.
+}
+message EventsStreamChunk {
+  OpStatus status = 1;
+  repeated SuspexEvent events = 2;
+  uint64 dropped = 3;      // driver-side overwrite-oldest counter (cumulative)
+  bool done = 4;
+}
+message EventsPollRequest {
+  uint64 since_seq = 1;    // 0 = from the oldest buffered event
+  uint32 max_events = 2;   // driver caps the drain
+  uint32 kinds_mask = 3;   // v12: bitmask of (1 << EventsKind); 0 = all.
+                         // Bit 6 auto-subscribes the BP class first
+                         // (installs the int1 hook — needs dangerous_ok).
+  bool dangerous_ok = 4;   // v12: consent for the IDT[1] hook install
+}
+message EventsPollResponse {
+  OpStatus status = 1;
+  repeated SuspexEvent events = 2;
+  uint64 last_seq = 3;
+  uint64 dropped = 4;      // overwrite-oldest counter (events lost forever)
+  bool subscribed = 5;     // whether any notify class is enabled
+  bool bp_hook = 6;        // v12: int1 hook installed (BP class registered)
+}
+message EventsStatsRequest {}
+message EventsStatsResponse {
+  OpStatus status = 1;
+  uint64 buffered = 2;
+  uint64 dropped = 3;
+  uint64 seq = 4;          // highest seq issued
+  bool proc_notify = 5;    // which callback classes are registered
+  bool image_notify = 6;
+  bool thread_notify = 7;
+  bool bp_hook = 8;        // v12: int1 hook installed (BP class registered)
+  uint64 bp_missed = 9;    // v12: hits consumed without a ring record
+                         // (lock contention / teardown window)
+}

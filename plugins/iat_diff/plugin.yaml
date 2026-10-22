@@ -1,0 +1,21 @@
+name: iat_diff
+description: "walk the IAT of a live module in `pid` and flag slots resolving outside their declared DLL (probable hooks)"
+target: user
+params:
+  pid:
+    type: int
+    required: true
+    description: target pid whose module IAT to walk
+  module:
+    type: str
+    required: true
+    description: module basename or full path (e.g. notepad.exe, C:\\Windows\\System32\\notepad.exe)
+  view:
+    type: str
+    default: "user"
+    enum: ["kernel", "user"]
+    description: which view to route through (kernel = driver-first reads, user = umagent)
+  kernel:
+    type: bool
+    default: false
+    description: walk a kernel module instead of a user module (pid is ignored)

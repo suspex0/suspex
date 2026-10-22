@@ -1,0 +1,38 @@
+name: driver_trace_scan
+description: "enumerate kernel driver load/unload traces in one pass: nt!PsLoadedModuleList (+ SectionPointer->SECTION->CONTROL_AREA->FILE_OBJECT->FileName provenance chains), nt!MmUnloadedDrivers, nt!PiDDBCacheTable/PiDDBCacheList (+ tree/list sync tamper check + AVL height + nulled-entry detection), ci!g_KernelHashBucketList (read-only; PDB-first, per-build pattern fallback)"
+target: kernel
+params:
+  recipe:
+    type: str
+    default: "all"
+    enum: ["all", "ps_loaded_module_list", "mm_unloaded_drivers", "pidddb_cache_table", "piddb_tamper_check", "ci_hash_bucket_list", "native_kernel_inputs"]
+    description: which kernel structure(s) to locate and enumerate
+  source:
+    type: str
+    default: "auto"
+    enum: ["auto", "pdb", "patterns"]
+    description: "pdb: resolve the globals via the build's PDB (needs the binary locally, downloads PDB on first use). patterns: ci.dll PAGE pattern from _patterns.yaml (mm/piddb have no verified pattern recipes)"
+  binary_path_nt:
+    type: str
+    default: ""
+    description: "local copy of the exact target ntoskrnl.exe (default C:\\Windows\\System32\\ntoskrnl.exe); pull it via file_manage first on remote targets"
+  binary_path_ci:
+    type: str
+    default: ""
+    description: "local copy of the exact target ci.dll (default C:\\Windows\\System32\\ci.dll)"
+  name_filter:
+    type: str
+    default: "suspex"
+    description: flag entries whose name contains this substring (case-insensitive) - the stale-driver signal
+  max_entries:
+    type: int
+    default: 100
+    description: cap on LISTED entries per structure (piddb_tamper_check and native_kernel_inputs always walk the full tree+list regardless)
+  label:
+    type: str
+    default: "native"
+    description: snapshot label for native_kernel_inputs - JSON lands under artifacts/native_inputs/<label>_<iso>.json with a <label>_latest.json pointer
+  chain_sample:
+    type: int
+    default: 16
+    description: how many non-null-SectionPointer loader entries to follow through the SECTION->CONTROL_AREA->FILE_OBJECT->FileName chain (native_kernel_inputs)

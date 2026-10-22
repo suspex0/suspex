@@ -1,0 +1,20 @@
+name: umview_diff
+description: "kernel-vs-usermode memory parity for one pid (wraps suspex.parity as a reusable plugin)"
+target: user
+params:
+  pid:
+    type: int
+    required: true
+    description: target process id
+  samples:
+    type: int
+    default: 16
+    description: committed regions to sample
+  read_bytes:
+    type: int
+    default: 4096
+    description: bytes per sample
+  seed:
+    type: int
+    default: 0
+    description: deterministic sample offsets

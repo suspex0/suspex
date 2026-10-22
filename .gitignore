@@ -1,0 +1,72 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+artifacts/
+reports/
+*.log
+build/
+out/
+.vs/
+*.user
+*.sys
+*.pdb
+*.ilk
+*.obj
+suspex_kernel.log
+symbols/
+*.dmp
+dumps/
+*.i
+*.obj
+*.nativecodeanalysis.xml
+_pp_*
+_spawn_repro*
+_bridge_repro.py
+_fake_server*
+_repro4.py
+_fix_memwrite.py
+_art/
+
+# local lab config + deploy token (secrets - never commit)
+configs/local.yaml
+
+# Devin per-user local overrides (secrets/personal MCP config - never commit)
+.devin/config.local.json
+.devin/mcp_config.local.json
+
+# build/deploy output and local venvs
+dist/
+.ida-mcp-venv/
+.ghidra-venv/
+*.exe
+
+# personal/engagement-specific plugins (local overlay on top of plugins/)
+scripts_user/
+
+# debug scratch files copied from the dev tree
+scripts/_*
+scripts/sym/
+dbg_iso*
+
+# orchestrator runtime logs
+orchestrator/orchestrator-boot*
+orchestrator/orchestrator-start*
+orchestrator-server.*
+
+# dev/planning/research scratch (kept local, not shipped) — agent
+# integration files (.devin/.kilo/.claude skills+commands, .mcp.json)
+# ARE tracked: they ship the agent-facing usage docs
+_feedback/
+notes/
+.kilo/plans/
+.kilo/worktrees/
+.claude/worktrees/
+.claude/settings.local.json
+temp_spoofer/
+nul
+configs/*.bak*
+devin_tools_preview.png
+orchestrator/_*.py
+docs/sid-research.md
+docs/read_sid.cpp

@@ -1,0 +1,25 @@
+# Pre-commit hooks for suspex0.
+#
+# Enable with `pip install pre-commit && pre-commit install`. Once
+# installed, the hooks run on every `git commit`: ruff lints changed
+# Python files, and the line-count hook fails the commit if any code
+# file has grown past the 600-line budget. The script itself runs
+# standalone: `python tools/check_line_count.py`.
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # ruff version; bump alongside orchestrator/pyproject.toml [tool.ruff]
+    rev: v0.17.1
+    hooks:
+      - id: ruff
+        args: [--config, orchestrator/pyproject.toml]
+        files: ^orchestrator/(src|tests)/.*\.py$
+
+  - repo: local
+    hooks:
+      - id: check-line-count
+        name: Fail if any code file exceeds 600 lines
+        entry: python tools/check_line_count.py
+        language: system
+        pass_filenames: false
+        always_run: true

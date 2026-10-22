@@ -1,0 +1,26 @@
+name: pidddb_scan
+description: "walk PiDDBCacheTable / MmUnloadedDrivers for stale records of OUR test drivers (unload-hygiene check). PDB symbol resolution first, per-build pattern recipes as offline fallback"
+target: kernel
+params:
+  recipe:
+    type: str
+    default: "pidddb_cache_table"
+    enum: ["pidddb_cache_table", "mm_unloaded_drivers"]
+    description: which kernel structure to locate and walk
+  source:
+    type: str
+    default: "auto"
+    enum: ["auto", "pdb", "patterns"]
+    description: "pdb: resolve the global via the build's PDB (needs the binary locally, downloads PDB on first use). patterns: scan with _patterns.yaml recipe"
+  binary_path:
+    type: str
+    default: ""
+    description: "local copy of the exact target module binary (default: C:\\Windows\\System32\\<module>); for remote targets pull it via file_manage first"
+  name_filter:
+    type: str
+    default: "suspex"
+    description: flag entries whose driver name contains this substring (case-insensitive)
+  max_entries:
+    type: int
+    default: 100
+    description: cap on walked entries

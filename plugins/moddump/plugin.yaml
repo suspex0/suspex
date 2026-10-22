@@ -1,0 +1,16 @@
+name: moddump
+description: "full runtime dump of a kernel module: reads the whole mapped image from kernel space and rebuilds a file-layout PE (IDA-ready)"
+target: kernel
+params:
+  module:
+    type: str
+    required: true
+    description: module name as listed in the kernel module list (e.g. disk.sys)
+  out:
+    type: str
+    default: ""
+    description: output file path (default artifacts/dumps/<module>.rt.sys)
+  chunk:
+    type: int
+    default: 1048576
+    description: kernel memory read chunk size in bytes

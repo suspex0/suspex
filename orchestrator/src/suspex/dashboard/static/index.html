@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Suspex0</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>Suspex0</h1>
+    </div>
+    <div class="hdr-meta">
+      <span id="focus-pill" class="pill" title="focus machine" hidden></span>
+      <span id="ver-pill" class="pill" title="server version"></span>
+      <span id="tools-pill" class="pill" title="registered tools"></span>
+      <span id="conn" class="badge">…</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- Machines ------------------------------------------------------ -->
+    <section class="panel span-2" id="machines">
+      <div class="panel-hd">
+        <h2>Machines</h2>
+        <button id="add-btn" class="btn btn-accent">+ Add machine</button>
+      </div>
+      <form id="add-form" class="add-form" hidden>
+        <div class="grid-fields">
+          <label>Alias<input name="alias" placeholder="lab3" required /></label>
+          <label>Host<input name="host" placeholder="10.0.2.20" /></label>
+          <label>Kernel port<input name="kernel_port" type="number" placeholder="50074" /></label>
+          <label>User port<input name="user_port" type="number" placeholder="50075" /></label>
+          <label>Token<input name="token" placeholder="${LAB3_TOKEN}" /></label>
+          <label>Trust
+            <select name="trust">
+              <option value="untrusted">untrusted</option>
+              <option value="restricted">restricted</option>
+              <option value="lab">lab</option>
+            </select>
+          </label>
+          <label>Purpose<input name="purpose" placeholder="delta rig" /></label>
+          <label>Tags<input name="tags" placeholder="win11, vm" /></label>
+          <label class="wide">Note<input name="note" placeholder="testsigning on" /></label>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-accent">Save</button>
+          <button type="button" id="add-cancel" class="btn">Cancel</button>
+          <span id="add-err" class="form-err"></span>
+        </div>
+      </form>
+      <div id="machine-cards" class="cards">loading…</div>
+    </section>
+
+    <!-- Security posture --------------------------------------------- -->
+    <section class="panel" id="posture">
+      <div class="panel-hd"><h2>Security posture</h2><span id="posture-note" class="hint"></span></div>
+      <div id="posture-grid" class="chip-grid">–</div>
+    </section>
+
+    <!-- Driver & host ------------------------------------------------ -->
+    <section class="panel" id="host">
+      <div class="panel-hd"><h2>Driver &amp; host</h2></div>
+      <dl id="host-dl" class="kv">–</dl>
+    </section>
+
+    <!-- Findings ----------------------------------------------------- -->
+    <section class="panel" id="findings">
+      <div class="panel-hd">
+        <h2>Findings</h2>
+        <div id="sev-counts" class="sev-counts"></div>
+      </div>
+      <div id="findings-list" class="findings-list">–</div>
+    </section>
+
+    <!-- Live events -------------------------------------------------- -->
+    <section class="panel" id="events">
+      <div class="panel-hd"><h2>Live events</h2></div>
+      <div id="event-list" class="feed"></div>
+    </section>
+
+    <!-- Tool-call log ------------------------------------------------ -->
+    <section class="panel span-2" id="toollog">
+      <div class="panel-hd">
+        <h2>Tool-call log</h2>
+        <label class="toggle"><input type="checkbox" id="only-destr" /> destructive only</label>
+      </div>
+      <table>
+        <thead><tr><th>time</th><th>tool</th><th>action</th><th>flags</th><th>result</th></tr></thead>
+        <tbody id="toollog-body"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

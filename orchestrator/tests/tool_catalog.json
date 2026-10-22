@@ -1,0 +1,426 @@
+{
+  "tools": [
+    {
+      "actions": [
+        "actions",
+        "analyze",
+        "analyze_list",
+        "analyze_status",
+        "audit",
+        "callgraph",
+        "caps",
+        "cfg",
+        "chain_check",
+        "diff",
+        "disasm_func",
+        "entropy",
+        "exports",
+        "funcs",
+        "gadget_check",
+        "gadgets",
+        "hashes",
+        "imphash",
+        "imports",
+        "info",
+        "iocs",
+        "ioctl_surface",
+        "irp_surface",
+        "paths",
+        "pseudo",
+        "scan",
+        "sec",
+        "sections",
+        "strings",
+        "xrefs"
+      ],
+      "alias_of": null,
+      "readonly": true,
+      "tool": "bin_manage"
+    },
+    {
+      "actions": [
+        "actions",
+        "add",
+        "disable",
+        "enable",
+        "events",
+        "list",
+        "remove"
+      ],
+      "alias_of": null,
+      "readonly": false,
+      "tool": "bp_manage"
+    },
+    {
+      "actions": [
+        "actions",
+        "attach",
+        "cmd",
+        "continue",
+        "detach",
+        "events",
+        "launch",
+        "read",
+        "regions",
+        "regs",
+        "set_regs",
+        "stacktrace",
+        "step_into",
+        "step_over",
+        "threads",
+        "write"
+      ],
+      "alias_of": null,
+      "readonly": false,
+      "tool": "debug_manage"
+    },
+    {
+      "actions": [
+        "actions",
+        "etw_providers",
+        "etw_sessions",
+        "ioctl"
+      ],
+      "alias_of": null,
+      "readonly": false,
+      "tool": "device_manage"
+    },
+    {
+      "actions": [
+        "actions",
+        "latest",
+        "parse",
+        "stack"
+      ],
+      "alias_of": null,
+      "readonly": false,
+      "tool": "dump_manage"
+    },
+    {
+      "actions": [
+        "actions",
+        "close",
+        "create",
+        "hook_add",
+        "hook_remove",
+        "list",
+        "load_pe",
+        "load_shellcode",
+        "map",
+        "mem_read",
+        "mem_write",
+        "regs",
+        "restore",
+        "run",
+        "seed_from_target",
+        "set_regs",
+        "snapshot",
+        "step",
+        "unmap"
+      ],
+      "alias_of": null,
+      "readonly": false,
+      "tool": "emulate_manage"
+    },
+    {
+      "actions": [
+        "actions",
+        "list",
+        "poll",
+        "stats",
+        "subscribe",
+        "unsubscribe"
+      ],
+      "alias_of": null,
+      "readonly": false,
+      "tool": "event_manage"
+    },
+    {
+      "actions": [
+        "actions",
+        "call",
+        "detached_follow",
+        "detached_kill",
+        "detached_status",
+        "detached_tail",
+        "kill_process",
+        "read_console",
+        "resume",
+        "run_cmd",
+        "run_detached",
+        "run_exe",
+        "run_powershell",
+        "run_script",
+        "shells",
+        "start_shell",
+        "stop_shell",
+        "suspend",
+        "write_console"
+      ],
+      "alias_of": null,
+      "readonly": false,
+      "tool": "exec_manage"
+    },
+    {
+      "actions": [
+        "actions",
+        "delete",
+        "download",
+        "dump_module",
+        "follow_list",
+        "follow_poll",
+        "follow_start",
+        "follow_stop",
+        "grep_artifact",
+        "hash",
+        "ingest",
+        "list_artifacts",
+        "list_dir",
+        "read",
+        "read_artifact",
+        "tail",
+        "upload",
+        "yara"
+      ],
+      "alias_of": null,
+      "readonly": false,
+      "tool": "file_manage"
+    },
+    {
+      "actions": [
+        "about",
+        "actions",
+        "add_evidence",
+        "annotate",
+        "artifacts",
+        "evidence_get",
+        "evidence_list",
+        "evidence_prune",
+        "evidence_summary",
+        "export_json",
+        "link",
+        "list",
+        "mark_stale",
+        "record",
+        "search",
+        "sessions",
+        "update"
+      ],
+      "alias_of": "knowledge_manage",
+      "readonly": false,
+      "tool": "findings_manage"
+    },
+    {
+      "actions": null,
+      "alias_of": null,
+      "readonly": false,
+      "tool": "ghidra_manage"
+    },
+    {
+      "actions": null,
+      "alias_of": null,
+      "readonly": false,
+      "tool": "ida_manage"
+    },
+    {
+      "actions": [
+        "about",
+        "actions",
+        "add_evidence",
+        "annotate",
+        "artifacts",
+        "evidence_get",
+        "evidence_list",
+        "evidence_prune",
+        "evidence_summary",
+        "export_json",
+        "link",
+        "list",
+        "mark_stale",
+        "record",
+        "search",
+        "sessions",
+        "update"
+      ],
+      "alias_of": null,
+      "readonly": false,
+      "tool": "knowledge_manage"
+    },
+    {
+      "actions": [
+        "actions",
+        "alloc",
+        "assemble",
+        "disasm",
+        "dps",
+        "dt",
+        "entropy",
+        "exports",
+        "free",
+        "handles",
+        "heaps",
+        "idt",
+        "imports",
+        "iocs",
+        "modules",
+        "obj_enum",
+        "pattern_scan",
+        "phys_ranges",
+        "pool_scan",
+        "probe_va",
+        "process_list",
+        "protect",
+        "read",
+        "read_ansi_string",
+        "read_qwords",
+        "read_unicode_string",
+        "resolve",
+        "resolve_range",
+        "scan_cancel",
+        "scan_list",
+        "scan_result",
+        "scan_start",
+        "scan_status",
+        "strings",
+        "threads",
+        "va_translate",
+        "vad",
+        "walk_list",
+        "watch",
+        "watch_list",
+        "watch_stop",
+        "write"
+      ],
+      "alias_of": null,
+      "readonly": false,
+      "tool": "mem_rw"
+    },
+    {
+      "actions": [
+        "actions",
+        "delete",
+        "enum",
+        "get",
+        "set"
+      ],
+      "alias_of": null,
+      "readonly": false,
+      "tool": "reg_manage"
+    },
+    {
+      "actions": [
+        "actions",
+        "capture",
+        "displays",
+        "windows"
+      ],
+      "alias_of": null,
+      "readonly": true,
+      "tool": "screen_manage"
+    },
+    {
+      "actions": [
+        "actions",
+        "history",
+        "list",
+        "run"
+      ],
+      "alias_of": null,
+      "readonly": false,
+      "tool": "script_manage"
+    },
+    {
+      "actions": [
+        "actions",
+        "ensure",
+        "enum_info",
+        "info",
+        "layout",
+        "layouts",
+        "lookup",
+        "resolve",
+        "resolve_member",
+        "struct_info"
+      ],
+      "alias_of": null,
+      "readonly": true,
+      "tool": "symbols_manage"
+    },
+    {
+      "actions": [
+        "actions",
+        "boot_recover",
+        "connect",
+        "crash_state",
+        "disconnect",
+        "driver_load",
+        "driver_unload",
+        "host_info",
+        "list_peers",
+        "machines",
+        "machines_register",
+        "machines_set",
+        "machines_unregister",
+        "parity",
+        "recent_ops",
+        "recent_ops_agent",
+        "reconnect",
+        "release_peer",
+        "status",
+        "subscribe_peers",
+        "sysinfo",
+        "targets",
+        "tool_index",
+        "use",
+        "wait_boot_change",
+        "wait_connectable",
+        "whoami"
+      ],
+      "alias_of": null,
+      "readonly": false,
+      "tool": "target_manage"
+    },
+    {
+      "actions": [
+        "actions",
+        "bits",
+        "cast",
+        "constants",
+        "decode",
+        "encode",
+        "err_lookup",
+        "eval",
+        "guid",
+        "hash",
+        "ioctl_decode",
+        "ioctl_encode",
+        "join",
+        "pack",
+        "split",
+        "str_convert",
+        "swap",
+        "time",
+        "unpack",
+        "views"
+      ],
+      "alias_of": null,
+      "readonly": true,
+      "tool": "value_manage"
+    },
+    {
+      "actions": [
+        "actions",
+        "arm",
+        "auto_kick",
+        "auto_status",
+        "auto_stop",
+        "disarm",
+        "kick",
+        "list"
+      ],
+      "alias_of": null,
+      "readonly": false,
+      "tool": "watchdog_manage"
+    }
+  ]
+}

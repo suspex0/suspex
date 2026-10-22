@@ -1,0 +1,37 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 24, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "win64",
+      "displayName": "suspex0 x64 (vcpkg static)",
+      "generator": "Visual Studio 18 2026",
+      "architecture": { "value": "x64", "strategy": "set" },
+      "binaryDir": "${sourceDir}/build",
+      "toolchainFile": "D:/vcpkg/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static-release",
+        "VCPKG_HOST_TRIPLET": "x64-windows",
+        "SUSPEX_BUILD_DRIVER": "ON"
+      }
+    },
+    {
+      "name": "win64-user",
+      "displayName": "suspex0 x64 user-mode only",
+      "inherits": "win64",
+      "cacheVariables": { "SUSPEX_BUILD_DRIVER": "OFF" }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "win64-release",
+      "configurePreset": "win64",
+      "configuration": "Release"
+    },
+    {
+      "name": "win64-user-release",
+      "configurePreset": "win64-user",
+      "configuration": "Release"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+name: persistence_audit
+description: |
+  Enumerate common Windows persistence surfaces on the target and file a
+  finding per entry that looks suspicious (unsigned path, path outside
+  System32, uncommon locations). Categories: Run/RunOnce (HKLM/HKCU + WOW64),
+  Services (Start<=3 kernel/user), Winlogon shell/userinit, Image File
+  Execution Options debuggers, AppInit_DLLs. Every hit lands in the
+  findings ledger under refs='persist:<category>:<key>'.
+
+  Static-only reads; no side effects on the target.
+target: kernel
+timeout_s: 180
+params:
+  categories:
+    type: list
+    default: []
+    description: |
+      subset of {run_keys, services, winlogon, ifeo, appinit}; empty = all.
+  include_microsoft:
+    type: bool
+    default: false
+    description: |
+      include entries whose path resolves under C:\Windows\System32 with a
+      Microsoft-canonical name (default off — huge noise cut).
+  min_severity:
+    type: str
+    enum: [info, warning, high]
+    default: warning
+    description: minimum severity to file per-hit findings

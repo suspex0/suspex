@@ -1,0 +1,136 @@
+# Suspex0 orchestrator configuration (copy me, fill in token + targets)
+
+target:
+  # the single active target for a session (protocol supports N later)
+  host: 192.168.56.10
+  port: 50074
+  token: "change-me-long-random"     # must match agent --token
+  connect_timeout_ms: 10000
+
+targets:
+  # named secondary views (phase 1). "kernel" stays the primary above; this
+  # adds the driver-free usermode umagent view for parity cross-checks:
+  #   target_manage(action="connect", name="user")
+  #   target_manage(action="parity", pid=<pid>)
+  user:
+    host: 192.168.56.10
+    port: 50075
+    token: "change-me-long-random"   # must match umagent --token
+
+# machines:
+#   # named machines (multi-box). Each owns a '<machine>.kernel' +
+#   # '<machine>.user' view pair — connect a whole box at once, then
+#   # set this chat's focus:
+#   #   target_manage(action="connect", machine="lab2", views="both")
+#   #   target_manage(action="use", machine="lab2")
+#   lab2:
+#     host: 10.0.2.15
+#     token: "change-me-long-random"     # must match agent/umagent --token
+#     kernel_port: 50099
+#     user_port: 50075
+#     # v0.30 machine metadata (also settable/extendable at runtime via
+#     # target_manage(action='machines_register'/'machines_set') — those
+#     # land in artifacts/targets.json and need no restart):
+#     purpose: "win11 22H2 test-signing rig"
+#     note: "NIC lease flaps between .15/.16"
+#     trust: "lab"        # untrusted | restricted | lab (see min_trust_actuator)
+#     operator: "hco3"
+#     tags: ["win11", "testsigning"]
+#   win7bare:
+#     host: 192.168.56.30
+#     token: "change-me-long-random"
+#     kernel_port: 50099
+#     user_port: 50075
+#     user: {host: 192.168.56.31, port: 50075}   # per-view override
+
+security:
+  # connect is refused unless the resolved target address is inside one of
+  # these CIDRs. Enforced before any packet leaves the orchestrator.
+  authorized_targets:
+    - "127.0.0.0/8"
+    - "192.168.56.0/24"
+  allow_delete: false          # file_manage delete (still trash-safe unless no_trash)
+  allow_driver_unload: true
+  allow_driver_load: true
+  max_transfer_mb: 512
+  max_mem_read_mb: 8
+  # v0.30: machine-trust gate for actuator verbs (ioctl send,
+  # driver_load/unload, boot_recover, kill_process, exec call).
+  # Machines below this trust level need force=true per call.
+  # "untrusted" (default) = no gating; "lab" = lab-owned boxes only.
+  # min_trust_actuator: "lab"
+  # allow_function_call: true   # exec_manage call — remote function execution
+                                # (inject a trampoline+thread or run a kernel
+                                # function at PASSIVE_LEVEL; strongest actuator)
+
+mcp:
+  bind: "127.0.0.1"
+  port: 8765
+  path: "/mcp"
+
+dashboard:
+  enabled: true
+  bind: "127.0.0.1"
+  port: 8766
+
+artifacts:
+  dir: "artifacts"             # streamed binaries land in <dir>/<sha256>/
+  reports_dir: "reports"
+  pdb_cache: "artifacts/symbols"   # _NT_SYMBOL_PATH cache target
+  # Shared knowledge-base DB. A relative path is resolved against the
+  # repo root; pin an absolute path if you want the server to always
+  # land on the same DB regardless of launch cwd.
+  findings_db: "artifacts/findings.db"
+
+ida:
+  enabled: true
+  ida_path: "D:\\Apps\\IDA"   # local IDA install (idalib must be activated)
+  # headless ida-pro-mcp supervisor spawned on demand via uv
+  command: ["uv", "run", "idalib-mcp", "--stdio"]
+  prefer_gui: false            # true: prefer an existing GUI IDA session
+  open_timeout_s: 180          # idb_open + auto-analysis budget
+
+# Ghidra engine — sibling of ida:, OFF by default. ghidra_manage stays
+# registered but answers a typed "disabled" error until this flips on.
+# Needs: a Ghidra install, a JDK, and a Python env with pyghidra+mcp
+# (the backend runs in ONE shared JVM hosting all program sessions).
+ghidra:
+  enabled: false
+  ghidra_dir: ""               # e.g. "D:\\Apps\\ghidra_11.x_PUBLIC" -> GHIDRA_INSTALL_DIR
+  java_home: ""                # JDK home -> JAVA_HOME; empty = rely on PATH
+  project_dir: ""              # shared project dir; empty = <artifacts>/ghidra_project
+  project_name: "suspex"
+  backend_python: ""           # interpreter with pyghidra+mcp; empty = auto-detect .ghidra-venv
+  heap_mb: 8192                # -Xmx for the shared JVM backend
+  open_timeout_s: 300          # JVM + import + auto-analysis is slower than idalib
+  open_soft_deadline_s: 10.0   # sync `open` falls back to pending/open_status after this
+  # command: ["uv", "run", "python", "orchestrator/ghidra_stdio_shim.py"]
+
+plugins:
+  dir: ""                        # empty: auto-resolve to <repo>\plugins (+ scripts_user overlay)
+
+symbols:
+  # PDB-backed kernel symbol resolution (pidddb_scan etc.)
+  allow_download: true           # fetch PDBs from the symbol server on first use
+  # servers: ["https://msdl.microsoft.com/download/symbols"]
+
+logging:
+  level: "INFO"
+  file: "suspex.log"
+
+# --- Multi-agent lease / ownership layer (all keys optional) -----------------
+# These sections tune the caller-side client pool and the lease arbitrator
+# that coordinate multiple concurrent agents against the same target. Leave
+# them commented out to accept the built-in defaults.
+
+# clients:
+#   # Idle AgentClient reaper: how long a per-target client may sit unused
+#   # before its gRPC channel is torn down. Seconds.
+#   idle_reap_s: 300.0
+
+# leases:
+#   # Default wait when a peer attaches to a pid already attached under
+#   # someone else's lease. Zero fails fast. Seconds.
+#   attach_timeout_s: 5.0
+#   # Default wait for driver_load / driver_unload arbitration. Seconds.
+#   driver_timeout_s: 10.0

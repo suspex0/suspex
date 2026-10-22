@@ -1,0 +1,30 @@
+name: driver_hygiene
+description: |
+  Cross-check the target's HKLM\...\Services entries (Type=kernel_driver
+  or file_system_driver) against the actual loaded-module list and the
+  on-disk .sys files. Flags: orphan services (registry entry with no file
+  on disk), phantom services (Start<=2 but not currently loaded), unusual
+  paths (ImagePath outside System32\drivers), leftover service files
+  (a .sys file present but no service registered), and duplicate services
+  pointing at the same .sys.
+
+  Static-only; no NtLoadDriver, no DeviceIoControl to suspect drivers.
+target: kernel
+timeout_s: 180
+params:
+  include_microsoft:
+    type: bool
+    default: false
+    description: |
+      include Microsoft-canonical drivers under System32\drivers in the
+      per-hit output (default off — huge noise cut).
+  extra_scan_dirs:
+    type: list
+    default: []
+    description: |
+      additional directories to scan for leftover .sys files. Defaults to
+      C:\Windows\System32\drivers only.
+  min_severity:
+    type: str
+    enum: [info, warning, high]
+    default: warning
