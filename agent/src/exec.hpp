@@ -33,6 +33,14 @@ public:
     RunResult RunShell(bool powershell, const std::string& command,
                        const std::wstring& workDir, DWORD timeoutMs,
                        const CancelledFn& cancelled = {});
+    // v0.31 Phase 2.3: quoting-proof PowerShell spawn. `encoded_b64` is a
+    // base64-encoded UTF-16LE command string that goes straight to
+    // ``powershell -EncodedCommand <b64>`` — immune to the double-parse
+    // mangling that bites ``-Command <quoted>`` on embedded quotes,
+    // backticks, newlines, and non-ASCII. Only valid for PowerShell.
+    RunResult RunShellEncoded(const std::string& encoded_b64,
+                              const std::wstring& workDir, DWORD timeoutMs,
+                              const CancelledFn& cancelled = {});
 
     // persistent shell sessions; shared_ptr-owned so a reader thread and an
     // RPC handler can hold one safely while StopShell unmaps the id

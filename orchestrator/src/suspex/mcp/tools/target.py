@@ -230,7 +230,15 @@ TARGET_ACTIONS = ["connect", "disconnect", "reconnect", "use",
                   "boot_recover",
                   # v0.30 machine registry (purpose/note/trust metadata)
                   "machines_register", "machines_set",
-                  "machines_unregister", "machines"]
+                  "machines_unregister", "machines",
+                  # v0.31 Phase 1.6: merged timeline view
+                  # (boot identity + agent restarts + watchdog events +
+                  #  recent ops + crash state + new minidumps)
+                  "timeline",
+                  # v0.31 Phase 2.4: rediscover a machine's endpoint via
+                  # parallel probe of configured/observed/alt_hosts +
+                  # hostname resolution; swaps the live view on match.
+                  "rediscover"]
 
 _TARGET_ACTION_HELP = {
     "actions": {"one_liner": "this list — per-verb help",
@@ -296,6 +304,18 @@ _TARGET_ACTION_HELP = {
                                  "new_boot",
                     "key_args": "name, include_dump",
                     "example": "target_manage(action='crash_state')"},
+    "timeline": {"one_liner": "merged window: boot identity, agent "
+                              "restarts, watchdog arms/fires, recent "
+                              "ops tail, crash state, new minidumps",
+                 "key_args": "name, since_iso, until_iso, limit",
+                 "example": "target_manage(action='timeline', "
+                            "since_iso='2026-10-23T00:00:00Z')"},
+    "rediscover": {"one_liner": "re-probe a machine's endpoints "
+                                "(configured + observed + alt_hosts) in "
+                                "parallel; swaps the live view on match",
+                   "key_args": "machine, timeout_s",
+                   "example": "target_manage(action='rediscover', "
+                              "machine='lab2')"},
     "wait_connectable": {"one_liner": "block until a target answers gRPC "
                                       "(keep timeout_s <= 60 — the MCP "
                                       "host's own request deadline kills "
@@ -440,6 +460,11 @@ def register(mcp, ctx: Context) -> None:
             default=False,
             description="seize/override a foreign-held view, driver "
                         "reference, or peer's holdings")
+        focus: bool = Field(
+            default=True,
+            description="connect only: set this chat's focus to the "
+                        "newly-connected view (v0.31+); false preserves "
+                        "an existing focus")
         peer_id: str = Field(
             default="",
             description="release_peer: the client_id to release")
@@ -493,7 +518,8 @@ def register(mcp, ctx: Context) -> None:
                             purpose: str = "", note: str = "",
                             trust: str = "", tags: str = "",
                             operator: str = "",
-                            user_port: int = 0) -> str:
+                            user_port: int = 0,
+                            focus: bool = True) -> str:
         """All views are '<machine>.<view>'; 'use' sets your per-chat current machine.
         Connect/disconnect target views (kernel agent + usermode umagent), status,
         driver load/unload, and kernel-vs-usermode memory parity runs.
@@ -532,14 +558,19 @@ def register(mcp, ctx: Context) -> None:
                     return _j({"ok": True, "focus": None,
                                "cleared": ctx.session.clear_focus(cid)})
                 try:
-                    focus = ctx.session.set_focus(cid, sel)
+                    # v0.31 Phase 1.1: this used to assign to a local
+                    # named `focus`, which shadowed the connect-path's
+                    # focus= parameter in the enclosing scope. Rename to
+                    # keep run()'s closures to the kwarg clean.
+                    focus_info = ctx.session.set_focus(cid, sel)
                 except RuntimeError as exc:
                     return _j({"ok": False, "kind": "bad_target",
                                "error": str(exc)})
                 # set_focus's dict already carries machine/kind/view plus
                 # the machine_label fields (computer_name, endpoint).
-                return _j({"ok": True, "client_id": cid, "focus": focus,
-                           "computer_name": focus.get("computer_name", ""),
+                return _j({"ok": True, "client_id": cid,
+                           "focus": focus_info,
+                           "computer_name": focus_info.get("computer_name", ""),
                            "hint": ("bare/empty name= selectors now resolve "
                                     "to this machine; target_manage(action="
                                     "'use', machine='none') clears")})
@@ -588,6 +619,50 @@ def register(mcp, ctx: Context) -> None:
                     return _j({"ok": False, "kind": "bad_arg",
                                "error": f"{action}: machine= (alias) "
                                         "is required"})
+                # v0.31 Phase 1.1: alias hygiene. If the caller registers
+                # a machine whose alias looks like an IPv4 (or ends in a
+                # digit cluster that matches a live view's computer_name
+                # suffix), warn: this is the k205/k207/k206 litter — the
+                # same box ends up with multiple aliases because the IP
+                # changed between runs. The call still succeeds; the
+                # response's warnings[] names the live alias instead.
+                dup_hint: str | None = None
+                if action == "machines_register":
+                    def _looks_like_ip(s: str) -> bool:
+                        parts = s.split(".")
+                        return (len(parts) == 4
+                                and all(p.isdigit() and 0 <= int(p) <= 255
+                                        for p in parts))
+                    def _digit_tail(s: str) -> str:
+                        i = len(s)
+                        while i > 0 and s[i - 1].isdigit():
+                            i -= 1
+                        return s[i:]
+                    live_label: str | None = None
+                    tail = _digit_tail(alias)
+                    for key in ctx.session.clients:
+                        mi = ctx.session.machine_label(key)
+                        cn = str(mi.get("computer_name") or "")
+                        m_label = str(mi.get("machine") or "")
+                        if not cn:
+                            continue
+                        if _looks_like_ip(alias) and alias in (
+                                getattr(ctx.session.clients[key],
+                                        "endpoint", "") or ""):
+                            live_label = m_label
+                            break
+                        if tail and len(tail) >= 2 and cn.lower().endswith(
+                                tail.lower()):
+                            live_label = m_label
+                            break
+                    if live_label and live_label.lower() != alias.lower():
+                        dup_hint = (f"alias {alias!r} looks like it points "
+                                    f"at a machine already known as "
+                                    f"{live_label!r}; consider "
+                                    f"target_manage(action='machines_set', "
+                                    f"machine={live_label!r}, host=...) "
+                                    "instead of a fresh alias — multiple "
+                                    "aliases for one box fragment history")
                 try:
                     if action == "machines_register":
                         info = reg.register(
@@ -613,7 +688,10 @@ def register(mcp, ctx: Context) -> None:
                 except ValueError as exc:
                     return _j({"ok": False, "kind": "bad_arg",
                                "error": str(exc)})
-                return _j({"ok": True, "machine_info": info})
+                out: dict[str, Any] = {"ok": True, "machine_info": info}
+                if dup_hint:
+                    out["warnings"] = [dup_hint]
+                return _j(out)
             if action == "connect":
                 cid = current_client_id()
 
@@ -626,7 +704,8 @@ def register(mcp, ctx: Context) -> None:
                     status = await ctx.session.connect(
                         host or None, port or None, token or None,
                         name=sel, machine=machine or None,
-                        owner=cid, force=bool(force))
+                        owner=cid, force=bool(force),
+                        focus=bool(focus))
                     view = status.get("view") or sel
                     status["resolved_address"] = getattr(
                         ctx.session.clients.get(view), "endpoint", "")
@@ -687,6 +766,39 @@ def register(mcp, ctx: Context) -> None:
                         ctx.set_current_session_id(
                             cid, ctx.ledger.start_session(
                                 ctx.session.cfg.target_endpoint))
+                    # v0.31 Phase 1.2 + 2.1: self-heal — the endpoint that
+                    # just answered is now registry-known for this machine,
+                    # and every IPv4 the agent sees on an up-adapter joins
+                    # it (so a flap to another lease self-heals in one
+                    # step). YAML aliases participate (observed_endpoints
+                    # is pure learned metadata, never overrides reviewed
+                    # endpoints).
+                    try:
+                        ep = str(status.get("resolved_address") or "")
+                        mlabel = ctx.session.machine_of(view)
+                        boot_ms = int(status.get("boot_epoch_ms") or 0)
+                        ep_p = 0
+                        if ":" in ep:
+                            eh, ep_s = ep.rsplit(":", 1)
+                            try:
+                                ep_p = int(ep_s)
+                            except ValueError:
+                                ep_p = 0
+                            if eh and ep_p:
+                                ctx.registry.record_observed_endpoint(
+                                    mlabel, host=eh, port=ep_p,
+                                    boot_epoch_ms=boot_ms)
+                        # If the agent reports an ipv4[] list on Status,
+                        # record every live address under the same port.
+                        for a in (status.get("ipv4") or []):
+                            if isinstance(a, dict) and a.get("up") \
+                                    and a.get("address"):
+                                ctx.registry.record_observed_endpoint(
+                                    mlabel, host=str(a["address"]),
+                                    port=ep_p or 0,
+                                    boot_epoch_ms=boot_ms)
+                    except Exception:  # noqa: BLE001 — self-heal is best-effort
+                        pass
                     return status
 
                 sel = (machine or name or "").strip()
@@ -1336,6 +1448,195 @@ def register(mcp, ctx: Context) -> None:
                 except Exception as exc:
                     out["minidump_error"] = str(exc)
                 return _j(out)
+            if action == "timeline":
+                # v0.31 Phase 1.6: merged chronological view of a target
+                # that stitches together the pieces already recorded
+                # elsewhere — boot identity, agent restarts, watchdog
+                # arms/fires, recent orchestrator ops, crash state, and
+                # fresh minidumps. Windowed by since_iso/until_iso when
+                # the caller passes them; defaults to the current ring.
+                import datetime as _dt
+                try:
+                    view = ctx.session.resolve_view_name(name) if name \
+                        else ctx.session.primary
+                except Exception:
+                    view = ctx.session.primary
+                events: list[dict[str, Any]] = []
+
+                def _parse_iso(s: str) -> float:
+                    if not s:
+                        return 0.0
+                    try:
+                        if s.endswith("Z"):
+                            s = s[:-1] + "+00:00"
+                        return _dt.datetime.fromisoformat(s).timestamp()
+                    except Exception:
+                        return 0.0
+                lo = _parse_iso(since_iso)
+                hi = _parse_iso(until_iso)
+
+                def _in_window(ts: float) -> bool:
+                    if lo and ts < lo:
+                        return False
+                    if hi and ts > hi:
+                        return False
+                    return True
+                # Boot identity (last-seen only — no persistent ring yet)
+                bid = ctx.session.boot_identity(view)
+                if bid:
+                    boot_ms = int(bid.get("boot_epoch_ms") or 0)
+                    boot_ts = boot_ms / 1000.0 if boot_ms else 0.0
+                    if _in_window(boot_ts) or not boot_ts:
+                        events.append({
+                            "ts": boot_ts,
+                            "kind": "boot_identity",
+                            "view": view,
+                            "boot_epoch_ms": boot_ms,
+                            "agent_instance_id": bid.get("agent_instance_id"),
+                        })
+                # Recent orchestrator ops (ring).
+                for call in list(ctx.session.tool_log)[-200:]:
+                    ts = float(call.ts or 0)
+                    if not _in_window(ts):
+                        continue
+                    events.append({
+                        "ts": ts,
+                        "kind": "op",
+                        "tool": call.tool,
+                        "action": call.action,
+                        "ok": call.ok,
+                        "destructive": call.destructive,
+                        "error": call.error if not call.ok else "",
+                    })
+                # Watchdog state (live).
+                try:
+                    client = ctx.session.clients.get(view)
+                    if client is not None:
+                        listing = await client.watchdog_list()
+                        rows = listing.get("entries", []) \
+                            if isinstance(listing, dict) else (listing or [])
+                        for r in rows or []:
+                            events.append({
+                                "ts": 0.0,  # driver side; no epoch
+                                "kind": "watchdog_armed",
+                                "id": r.get("id"),
+                                "deadline_ms": r.get("deadline_ms"),
+                                "label": r.get("label"),
+                            })
+                except Exception:  # noqa: BLE001 — watchdog list best-effort
+                    pass
+                # Pending boot notice (parked by boot monitor).
+                pending = ctx.session.pending_boot_notices.get(view)
+                if pending:
+                    boot_ms = int(pending.get("boot_epoch_ms") or 0)
+                    events.append({
+                        "ts": boot_ms / 1000.0 if boot_ms else 0.0,
+                        "kind": "boot_notice",
+                        "notice": dict(pending),
+                    })
+                # Sort newest-first, cap.
+                events.sort(key=lambda e: float(e.get("ts") or 0),
+                            reverse=True)
+                cap = int(samples) if samples else 100
+                events = events[:cap]
+                return _j({
+                    "ok": True,
+                    "action": "timeline",
+                    "view": view,
+                    "since_iso": since_iso,
+                    "until_iso": until_iso,
+                    "count": len(events),
+                    "events": events,
+                    "hint": ("timeline merges boot_identity, orchestrator "
+                             "op log, watchdog state, and pending boot "
+                             "notices. Use target_manage(action="
+                             "'crash_state') for full post-crash detail."),
+                })
+            if action == "rediscover":
+                # v0.31 Phase 2.4: re-probe a machine's known endpoints
+                # in parallel. Scope here (Phase 1 half): registry
+                # observed_endpoints + configured + alt_hosts +
+                # hostname resolution via getaddrinfo. On success,
+                # update observed_endpoints; the caller can then
+                # target_manage(action='reconnect') (or wait for the
+                # next connect() to pick it up).
+                import asyncio as _asyncio
+                import socket as _socket
+                mlabel_in = (machine or name or "").strip()
+                if not mlabel_in:
+                    return _j({"ok": False, "kind": "bad_arg",
+                               "error": "rediscover: machine= required"})
+                mlabel = ctx.session._match_machine(mlabel_in) or mlabel_in
+                # Candidate hosts (strings) + port guess.
+                hosts: list[str] = []
+                port_guess: int = 50099
+                try:
+                    tc = ctx.session.cfg.target_for(mlabel)
+                    if tc.host:
+                        hosts.append(tc.host)
+                    if tc.port:
+                        port_guess = int(tc.port)
+                    for h in (getattr(tc, "alt_hosts", None) or []):
+                        if h and h not in hosts:
+                            hosts.append(h)
+                except Exception:
+                    pass
+                for o in ctx.registry.observed_endpoints(mlabel):
+                    oh = o.get("host")
+                    if oh and oh not in hosts:
+                        hosts.append(str(oh))
+                    if o.get("port"):
+                        port_guess = port_guess or int(o["port"])
+                # Hostname resolution — add every A record we see.
+                try:
+                    for info in _socket.getaddrinfo(
+                            mlabel, port_guess, _socket.AF_INET,
+                            _socket.SOCK_STREAM):
+                        ip = info[4][0]
+                        if ip and ip not in hosts:
+                            hosts.append(ip)
+                except Exception:
+                    pass
+                if not hosts:
+                    return _j({"ok": False, "kind": "no_candidates",
+                               "machine": mlabel,
+                               "error": "rediscover: nothing to probe — "
+                                        "configured, observed, alt_hosts, "
+                                        "and DNS all empty"})
+                probe_s = max(1.0, float(timeout_s) if timeout_s else 2.0)
+
+                async def _probe(h: str) -> tuple[str, bool, str]:
+                    try:
+                        from ...session import _probe_tcp
+                        await _probe_tcp(h, port_guess, timeout_s=probe_s)
+                        return h, True, ""
+                    except Exception as exc:  # noqa: BLE001
+                        return h, False, str(exc)
+                probed = await _asyncio.gather(
+                    *(_probe(h) for h in hosts), return_exceptions=False)
+                answered = [(h, "ok") for h, ok, _ in probed if ok]
+                failures = [{"host": h, "error": e}
+                            for h, ok, e in probed if not ok]
+                for h, _ in answered:
+                    try:
+                        ctx.registry.record_observed_endpoint(
+                            mlabel, host=h, port=port_guess)
+                    except Exception:  # noqa: BLE001
+                        pass
+                return _j({
+                    "ok": bool(answered),
+                    "action": "rediscover",
+                    "machine": mlabel,
+                    "port": port_guess,
+                    "tried": hosts,
+                    "answered": [h for h, _ in answered],
+                    "failed": failures,
+                    "hint": ("record_observed_endpoint updated for every "
+                             "live host; call target_manage(action="
+                             f"'reconnect', name={mlabel!r}) to swap the "
+                             "channel, or just wait for the next connect "
+                             "(the candidate list now sees the new IP)"),
+                })
             if action == "boot_recover":
                 # v0.28: the post-reboot choreography as one call —
                 # verify/restore the view connection, sweep stale boot

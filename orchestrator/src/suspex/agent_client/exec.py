@@ -32,12 +32,34 @@ class ExecMixin:
 
     async def run_shell(self, command: str, shell: str = "cmd", workdir: str = "",
                         timeout_ms: int = 30000) -> dict[str, Any]:
+        # v0.31 Phase 2.3: PowerShell goes through -EncodedCommand on new
+        # agents to sidestep the double-parse mangling (quotes, backticks,
+        # newlines, non-ASCII). Legacy agents without the field continue
+        # on the `command=` string path.
+        req_kwargs = {
+            "shell": pb.POWERSHELL if shell == "powershell" else pb.CMD,
+            "command": command,
+            "working_dir": workdir,
+            "timeout_ms": timeout_ms,
+        }
+        if shell == "powershell":
+            try:
+                import base64 as _b64
+                enc = _b64.b64encode(
+                    command.encode("utf-16-le")).decode("ascii")
+                # Only pass encoded_command when the proto has the field —
+                # a pre-v0.31 generated pb2 lacks it; the request builder
+                # will reject the unknown kwarg.
+                probe = pb.RunShellRequest()
+                if hasattr(probe, "encoded_command"):
+                    req_kwargs["encoded_command"] = enc
+                    # Keep `command` as a human-readable breadcrumb for
+                    # the agent's op log; the agent prefers encoded.
+            except Exception:  # noqa: BLE001 — fall back to plain command
+                pass
         msg = await self._call(
             self.exec_.RunShell,
-            pb.RunShellRequest(
-                shell=pb.POWERSHELL if shell == "powershell" else pb.CMD,
-                command=command, working_dir=workdir, timeout_ms=timeout_ms,
-            ),
+            pb.RunShellRequest(**req_kwargs),
             timeout=timeout_ms / 1000.0 + 10,
         )
         if not msg.status.ok:

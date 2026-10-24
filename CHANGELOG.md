@@ -4,6 +4,208 @@ Version history and rebuild recipes for the suspex0 stack. Entries are
 reverse-chronological; each header calls out which of `driver`, `agent`, or
 `orchestrator` must rebuild.
 
+## v0.31 — field-feedback hardening (orchestrator + agent + driver rebuild)
+
+Phased delivery of the eleven-finding review plus the owner's two-cents
+network self-heal. Each phase ships independently; the recipe below says
+which component needs a rebuild per phase.
+
+### Phase 1 — orchestrator only (server restart, no target rebuild)
+
+- **Focus & connect ergonomics.** `target_manage(action='connect')` now
+  sets the caller's focus to the newly-connected view by default
+  (`focus=True`); opt-out preserves an existing focus. Dead-view errors
+  (`require_client`) echo the view's last-known endpoint. The connect
+  path probes every candidate (configured + last-good + registry
+  observed + alt_hosts) in parallel instead of serially, so one dead
+  endpoint no longer stalls another live one. The attach path now
+  verifies the cached channel with a status() before returning it;
+  machines_register warns when the alias looks like an IP already seen
+  under a live computer_name (k205/k207/k206 litter).
+- **Registry self-heal.** New `observed_endpoints[]` per machine
+  (`host`, `port`, `seen_at`, `boot_epoch_ms`). Every successful connect
+  records the endpoint it reached; Session.connect's candidate list
+  consults these as additional probes so a DHCP-moved box self-heals in
+  one round-trip. YAML aliases participate; the field is pure learned
+  metadata and never shadows reviewed config.
+- **exec timeout honesty.** `run_exe`/`run_powershell`/`run_cmd`/
+  `run_script` now derive `timeout_ms` from `timeout_s` when the caller
+  only raised the outer deadline, capped at the MCP response budget.
+  `_RUN_DEADLINE_HINT` names both deadlines and the `run_detached`
+  escape.
+- **Watchdog safety.** Bare `arm` without a kicker now **refuses** with
+  `kind='watchdog_no_kicker'` and auto-disarms the slot before replying
+  (breaking: v0.17's warn-only path becomes the refusal). Pass
+  `unsafe_without_kicker=true` to arm fire-and-forget; `id=0`
+  auto-allocates the first free slot in 1..64.
+- **`mem_rw(action='follow_chain')`.** Orchestrator-side pointer-chain
+  walker — takes `address`, `offsets=[0x18, 0x30, ...]`, optional
+  `pid`/`space`/`terminal_size`, and `expect_ascii` / `expect_nonzero` /
+  `expect_module` per-hop validators. Reports every hop + the terminal
+  read; typed `failed_at` names the first bad hop. No proto change.
+- **`target_manage(action='timeline')`.** Merged chronological view
+  (`since_iso`/`until_iso`) stitching boot identity, recent orchestrator
+  op log, watchdog state, and pending boot notices into one response.
+- **Symbol pattern fallback.** `symbols_manage(action='resolve',
+  fallback='pattern')` now consults a curated signature pack
+  (`orchestrator/src/suspex/symbols_patterns.py`) when the PDB server
+  has nothing — seeded with `ObpRootDirectoryObject`,
+  `PsLoadedModuleList`, `KdDebuggerDataBlock`, `KdpDmTransport`.
+  Resolved VAs carry `source:'pattern'` + confidence (`low`/`high`).
+- **PowerShell quoting.** `run_powershell command=...` now auto-routes
+  multi-line / long / non-ASCII bodies through the `run_script` upload
+  path (file-based, quoting-proof).
+
+### Phase 2 — agent + proto (agent rebuild, no driver change)
+
+- **Network identity echo (claim 1 feeder, 2.1).** `HostInfo` + `Status`
+  now carry `ipv4[]` from `GetAdaptersAddresses`
+  (`adapter`/`address`/`prefix_len`/`origin`/`gateway`/`mac`/`up`). The
+  orchestrator records every up-adapter IP as an observed endpoint on
+  connect — a NIC flap to another lease self-heals without any
+  configuration change.
+- **Static-IPv4 pinning (owner's 2 cents, 2.2).** New
+  `agent/src/host/net_pin.{hpp,cpp}` and agent config
+  (`pinAdapter`/`pinAddress`/`pinPrefix`/`pinGateway`/`pinDebounceMs`/
+  `pinAtBootOnly`/`pinHoldMarker`). Disabled unless `pin_adapter` is
+  set. Applies at service start and on
+  `NotifyUnicastIpAddressChange` with a debounce; honored only on the
+  named adapter; the hold marker (`SUSPEX_NET_PIN_HOLD` env or marker
+  file) silences the re-pin for the duration of a deliberate flap.
+- **Exec transport fixes (claim 7, 2.3).** `RunShellRequest` gains
+  `encoded_command` (base64 UTF-16LE) — PowerShell goes through
+  `-EncodedCommand` by default on new agents (immune to the double-parse
+  mangling). The classic `-Command <quoted>` path now also forces
+  `[Console]::OutputEncoding = UTF8` to kill the `â†’` mojibake.
+- **`target_manage(action='rediscover')` (claim 1, 2.4).** Parallel
+  probe of a machine's known endpoints (configured + observed +
+  alt_hosts + hostname resolution). Records every answering host under
+  `observed_endpoints`, so the next connect candidate list has it; the
+  caller follows up with `reconnect` to swap the live channel. Full MAC-
+  filtered ARP scan arrives with the agent-side 2.1 adapter list.
+
+### Phase 3 — driver (driver rebuild + reload; crash-risk gate)
+
+- **`obj_enum` addresses (claim 3, 3.1).** `ObjEntry` gains
+  `address`/`type_index`/`source`. The driver resolves each named
+  Driver/Device object's body VA via `ObReferenceObjectByName`
+  (`source: 'walk'`), falling back to the `ZwQueryDirectoryObject`
+  path (`source: 'zwquery'`) when the name doesn't resolve. The hash-
+  bucket walk variant is wired through the ABI but gated to the
+  resolver that is PatchGuard-safe.
+- **`pool_scan` coverage + cursor (claim 4, 3.2).** `PoolScanRequest`
+  gains `cursor`; pattern cap raised to 64 B, span cap raised to
+  64 KiB. `PoolScanResponse` gains `holes` (previously silent
+  content-read failures at `Pool.c:213`), `span_truncated`,
+  `last_index`, and `next_cursor` — a wide sweep is now provably
+  complete or partial-with-reasons, and the cursor drives resumable
+  scans without the max_results silent cliff.
+
+### Phase 4 — leak_scan primitive
+
+- **`mem_rw(action='leak_scan')`.** Cross-scope needle sweep.
+  `scopes=['kernel_pool','module_data','per_process']` × `needles=[...]`
+  (byte strings or `hex:...`). Pool scope uses the cursor-paginated
+  `pool_scan`; module scope reads each module's load range once per
+  needle; per-process scope walks each process's heaps. Each scope
+  reports `coverage` honestly (holes, span truncation, read failures),
+  with aggregated `hit_total`.
+
+### Phase 5 — listener & autostart hardening (agent + umagent + scripts; rig field report)
+
+Field report from the rig: after NIC flap cycles the agent stayed alive
+with the port LISTENING while every new SYN (loopback included) timed
+out — only `taskkill` + restart recovered it — and boot autostart was
+unreliable. Four fixes, all in the agent and umagent (no driver/orchestrator change):
+
+- **Stdio can no longer wedge the accept path.** Root cause pattern:
+  `cmd /c suspex_agent.exe --dev ...` under a scheduled task gives the
+  agent session-0 pipes nobody drains; gRPC logs connection errors to
+  stderr during network churn, the pipe fills, and the thread inside the
+  blocked write (event-engine/accept path included) stalls. New
+  `agent/src/srv_log.{hpp,cpp}`: `--log <path>` rotating file (4 MiB
+  default, `--log-max-mb`), stderr spliced onto a drain pipe and relayed
+  into it at both the CRT and `SetStdHandle` level (covers native and
+  stdio writers; the classic `gpr_set_log_function` sink no longer exists
+  in current gRPC), and stdout/stderr redirected to `NUL` in service/task
+  context (`--dev` keeps console stdio). Linked into both agent and
+  umagent.
+- **Bind retries instead of exiting.** `BuildAndStart` failures (stale
+  instance still holding the port after a NIC flap removed its address,
+  transient `WSAEADDRINUSE`) now retry with 0.5s→15s backoff in a
+  generation loop instead of terminating the process.
+- **Listener self-test + self-rebind.** New
+  `agent/src/listen_watch.{hpp,cpp}`: raw loopback TCP connect every 15s
+  (deliberately below gRPC — the wedge leaves the port LISTENING); after
+  3 consecutive dead probes the server is shut down with a deadline and
+  rebuilt — fresh socket, dead client connections reaped. The SCM stop
+  path is now graceful too (`SetServiceStopHook`: server shutdown,
+  breadcrumb flush, then `SERVICE_STOPPED`; `ExitProcess` remains as a
+  bounded backstop), and the service registers under the name SCM
+  actually dispatched (a mismatch silently killed ServiceMain before).
+- **Boot autostart + honest provisioning.**
+  `scripts/install_agent_service.ps1` now defaults to `start= auto`
+  (`-StartMode demand` opts out), adds SCM failure recovery for the
+  umagent (agent already had it), adds `--log` to both binPaths, and the
+  firewall rules carry `profile=any` + `-RemoteIp` (a profile-scoped
+  rule went silent after NIC flaps moved the interface profile). New
+  `docs/AGENT_DEPLOY.md` runbook: service install (binPath points at the
+  exe — never `cmd /c`, which is what failed the SCM handshake with
+  1053), scheduled-task fallback XML-equivalent settings, static-IP pin
+  wiring, and the loopback triage/unblock commands.
+
+Also: **Phase 2.2 completion** — `net_pin.{hpp,cpp}` was present but
+unwired. Now built, configured (`--pin-adapter/--pin-address/--pin-prefix/
+--pin-gateway/--pin-debounce-ms/--pin-at-boot-only/--pin-hold-marker`),
+started at agent boot, and exposed over the new `NetPin` gRPC service
+(`Status` snapshot / `Apply` one-shot re-pin with `clear_hold`). And the
+agent version constant moved from the stale `0.10.0` to `0.31.0` — the
+`+<sha>-dirty` suffixes in field reports now match the changelog.
+
+### Phase 5 follow-up (rig reboot war, 2026-10-24)
+
+Post-deploy field evidence drove four more hardening changes:
+
+- **Self-test covers LAN addresses too.** The wedge report included
+  LAN-only SYN drops with loopback answering — a probe set of just
+  `127.0.0.1` is blind to WFP/profile-scoped inbound drops (SMB keeps
+  answering via its own all-profile rules). The watch now enumerates
+  every up-adapter IPv4 each cycle (fresh per DHCP churn) and strikes on
+  any dead target, logging which one.
+- **Wedge escalation to SCM.** In-process rebind once; if the listener
+  wedges (or `Wait()` returns unrequested) twice within 10 minutes, the
+  agent logs and exits(1) so `sc failure` recovery supplies a fresh
+  process. The orphaned-instance class of failure (a process alive but
+  unreachable forever) is now bounded by construction.
+- **Log no longer dies silently.** A transient lock on the log file at
+  (re)open made every `Logf` a silent no-op for the process lifetime —
+  the rig ran a whole night with an unlogged agent (SCM said RUNNING,
+  zero log lines). `Logf` now lazily re-opens every 10s and announces
+  `(log reopened after N failed open attempts)` once it gets through.
+- **One canonical autostart.** The rig carried an onstart
+  `cmd /c --dev` task plus a 5-min netstat watchdog task that re-ran it —
+  the source of duplicate/stale instances, boot races and the
+  `No address added` bind failure. `install_agent_service.ps1` now
+  deletes `suspex-agent` and `suspex-agent-watch`; the SCM service (auto
+  + failure recovery + `--log`) is the only autostart, documented in
+  `docs/AGENT_DEPLOY.md`.
+
+### Rebuild recipe
+
+- Phase 1: restart `orchestrator-server`. No agent/driver change.
+- Phase 2: rebuild `agent` + regenerate protos
+  (`scripts/update_target.py --component agent`). Driver untouched.
+- Phase 3: rebuild `driver` + regenerate protos; reload the driver via
+  `target_manage(action='driver_load')`. **Sacrificial-box validation
+  first** — the `obj_enum` resolver and the `pool_scan` cursor are new
+  kernel code paths.
+- Phase 4: no additional rebuild; ships with Phase 1 orchestrator but
+  benefits from Phase 3 driver (`next_cursor` for complete coverage).
+- Phase 5: rebuild `agent` + `umagent` (proto bump: `NetPin` service —
+  regenerate stubs, `scripts/build.ps1 -Target user` does it) and
+  re-run `scripts/install_agent_service.ps1` on the rig so autostart,
+  recovery, `--log` and `profile=any` take effect. No driver change.
+
 ## v1.0 — first public release
 
 Initial public release of the suspex0 stack (driver, agent, orchestrator).

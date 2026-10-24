@@ -197,17 +197,44 @@ def register_dashboard_routes(app, ctx) -> None:  # noqa: ANN001 - FastAPI app
             except (ValueError, TypeError):
                 return None
 
+        # The edit form always prefills host/ports and submits them
+        # unchanged. Registry.set treats ANY endpoint field as an endpoint
+        # write, which YAML aliases reject (reviewed config) — so a pure
+        # metadata edit (note/purpose/trust/tags) 400'd and "Save did
+        # nothing". Drop endpoint fields that match the current effective
+        # values; only real changes count.
+        cur = ctx.registry.describe(alias, cfg=ctx.cfg) or {}
+        cur_eps = cur.get("endpoints") or {}
+        cur_kh, _, cur_kp = (cur_eps.get("kernel") or "").rpartition(":")
+        cur_uh, _, cur_up = (cur_eps.get("user") or "").rpartition(":")
+        host = _opt("host")
+        kport = _opt("kernel_port", int) or _opt("port", int)
+        uport = _opt("user_port", int)
+        if host is not None and str(host) == str(cur_kh or ""):
+            host = None
+        if kport is not None and int(kport) == int(cur_kp or 0):
+            kport = None
+        if uport is not None and int(uport) == int(cur_up or 0):
+            uport = None
+
+        # Present-but-empty CLEARS a metadata field (the form sends every
+        # key on every submit; _opt swallowing "" made clearing notes
+        # impossible — save "did nothing"). Absent key = no change.
+        def _meta(key):
+            v = body.get(key)
+            return None if v is None else str(v)
+
         try:
             info = ctx.registry.set(
                 alias,
-                host=_opt("host"),
-                kernel_port=_opt("kernel_port", int) or _opt("port", int),
-                user_port=_opt("user_port", int),
+                host=host,
+                kernel_port=kport,
+                user_port=uport,
                 token=_opt("token"),
                 trust=_opt("trust"),
-                purpose=_opt("purpose"),
-                note=_opt("note"),
-                operator=_opt("operator"),
+                purpose=_meta("purpose"),
+                note=_meta("note"),
+                operator=_meta("operator"),
                 tags=_tag_list(body["tags"]) if "tags" in body else None,
                 force=bool(body.get("force")),
             )
@@ -223,8 +250,20 @@ def register_dashboard_routes(app, ctx) -> None:  # noqa: ANN001 - FastAPI app
         except (ValueError, TypeError) as exc:
             return JSONResponse({"ok": False, "error": str(exc)},
                                 status_code=400)
-        return JSONResponse({"ok": bool(removed), "machine": alias,
-                             "removed": removed})
+        # A machine card can outlive its registry entry while a session
+        # still holds a live view of it (k223/k225 on the lab LAN: the
+        # registry entries were gone, the cards stayed because the views
+        # were connected). "Delete" clears both: the entry AND any live
+        # views (owner=None — management override, same as Disconnect).
+        dropped: list[str] = []
+        for view in list(ctx.session.machines().get(alias, [])):
+            try:
+                r = await ctx.session.disconnect(view, owner=None)
+                dropped.extend(r.get("disconnected", []))
+            except Exception:  # noqa: BLE001 — best-effort
+                pass
+        return JSONResponse({"ok": True, "machine": alias,
+                             "removed": removed, "disconnected": dropped})
 
     @app.post("/api/machines/{alias}/connect")
     async def machine_connect(alias: str, req: Request) -> JSONResponse:

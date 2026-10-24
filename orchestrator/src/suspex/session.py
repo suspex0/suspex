@@ -202,6 +202,37 @@ class Session:
         # retried first when the configured endpoint fails the pre-flight
         # probe (NIC lease flap, DHCP change).
         self._last_good_host: dict[str, str] = {}
+        # v0.31 Phase 1.2: optional callback that returns observed-endpoint
+        # host strings for a machine label (newest-first), used to extend
+        # the connect candidate list beyond the configured + last-good +
+        # alt_hosts set. Context installs this with
+        # ``set_observed_endpoint_source(lambda label: [...])``.
+        self._observed_endpoint_source = None
+
+    def set_observed_endpoint_source(self, fn) -> None:
+        """Register a ``(machine_label) -> list[host|host:port]`` callable
+        used by :meth:`connect` to probe registry-observed endpoints as
+        additional candidates. ``fn=None`` clears the hook."""
+        self._observed_endpoint_source = fn
+
+    def _observed_hosts_for(self, label: str) -> list[str]:
+        fn = self._observed_endpoint_source
+        if fn is None or not label:
+            return []
+        try:
+            vals = list(fn(label) or [])
+        except Exception:  # noqa: BLE001 — observed-endpoint lookups are best-effort
+            return []
+        out: list[str] = []
+        for v in vals:
+            if not v:
+                continue
+            s = str(v)
+            if ":" in s:
+                s = s.rsplit(":", 1)[0]
+            if s and s not in out:
+                out.append(s)
+        return out
 
     def note_boot_identity(self, name: str, status: dict[str, Any]) -> dict[str, Any] | None:
         """Compare ``status``'s boot identity against the last seen for view
@@ -411,7 +442,8 @@ class Session:
     async def connect(self, host: str | None = None, port: int | None = None,
                       token: str | None = None, name: str = PRIMARY_TARGET,
                       machine: str | None = None,
-                      owner: str | None = None, force: bool = False) -> dict[str, Any]:
+                      owner: str | None = None, force: bool = False,
+                      focus: bool = True) -> dict[str, Any]:
         """Connect (or attach to an already-connected) named view.
 
         Sharing semantics:
@@ -442,24 +474,52 @@ class Session:
         # the configured alt_hosts. Allowlist violations still abort
         # immediately; only network-level probe failures fall through.
         candidates: list[str] = []
+        observed = self._observed_hosts_for(label or "")
         for h in (host, self._last_good_host.get(label or "", ""),
+                  *observed,
                   *(getattr(t, "alt_hosts", None) or [])):
             if h and h not in candidates:
                 candidates.append(h)
         for cand in candidates:
             self.check_target(cand)
         probe_timeout_s = min(3.0, (t.connect_timeout_ms or 3000) / 1000.0)
-        tried: list[str] = []
+        tried: list[str] = list(candidates)
+        # v0.31 Phase 1.1: fire every candidate's TCP SYN concurrently so a
+        # dead endpoint doesn't block a live one by waiting out its full
+        # timeout serially. Preference ranks the winners for ties
+        # (configured > last_good > observed/alt_hosts, which is the order
+        # the candidates were built in).
         probe_err: Exception | None = None
-        for cand in candidates:
-            tried.append(cand)
-            try:
-                await _probe_tcp(cand, port, timeout_s=probe_timeout_s)
-                host = cand
+        if len(candidates) <= 1:
+            for cand in candidates:
+                try:
+                    await _probe_tcp(cand, port, timeout_s=probe_timeout_s)
+                    host = cand
+                    probe_err = None
+                    break
+                except OSError as exc:
+                    probe_err = exc
+        else:
+            async def _probe(h: str) -> tuple[str, Exception | None]:
+                try:
+                    await _probe_tcp(h, port, timeout_s=probe_timeout_s)
+                    return h, None
+                except OSError as exc:
+                    return h, exc
+            results = await asyncio.gather(
+                *(_probe(h) for h in candidates), return_exceptions=False)
+            # Preserve candidate priority order among successes.
+            prio = {h: i for i, h in enumerate(candidates)}
+            winners = sorted((h for h, e in results if e is None),
+                             key=lambda h: prio.get(h, 1 << 30))
+            if winners:
+                host = winners[0]
                 probe_err = None
-                break
-            except OSError as exc:
-                probe_err = exc
+            else:
+                # All failed — surface the first candidate's error (which
+                # is also the "configured" one and the most informative).
+                probe_err = next((e for _, e in results if e is not None),
+                                 OSError("all endpoints unreachable"))
         if probe_err is not None:
             raise probe_err
         self._last_good_host[label or ""] = host
@@ -491,18 +551,35 @@ class Session:
                 forced = True
             else:
                 # Either same owner (increment) or different owner without
-                # force (add as co-owner). Either way, bump the counter and
-                # hand back the live client's status.
-                refs[owner_id] = refs.get(owner_id, 0) + 1
-                status = await existing.status()
-                status["shared"] = len(refs) > 1
-                status["primary_owner"] = primary_owner
-                status["view"] = planned
-                status["machine"] = self.machine_label(planned)["machine"]
-                change = self.note_boot_identity(planned, status)
-                if change:
-                    status["boot_change"] = change
-                return status
+                # force (add as co-owner). v0.31 Phase 1.1: before handing
+                # back the live client, verify the channel. A cached attach
+                # that answers status() means the view is live; a failure
+                # means we're sitting on a stale/wedged client — tear it
+                # down and fall through to the fresh-candidate connect so
+                # callers like `machines_set` (which rewrote the endpoint)
+                # don't get a stale attach.
+                try:
+                    status = await existing.status()
+                except Exception:  # noqa: BLE001 - any channel failure is retryable
+                    await existing.close()
+                    self.clients.pop(planned, None)
+                    self.owners.pop(planned, None)
+                    self.refs.pop(planned, None)
+                    self.stop_boot_monitor(planned)
+                else:
+                    refs[owner_id] = refs.get(owner_id, 0) + 1
+                    status["shared"] = len(refs) > 1
+                    status["primary_owner"] = primary_owner
+                    status["view"] = planned
+                    status["machine"] = self.machine_label(planned)["machine"]
+                    change = self.note_boot_identity(planned, status)
+                    if change:
+                        status["boot_change"] = change
+                    if focus and owner:
+                        self._focus[owner] = {
+                            "machine": self.machine_of(planned),
+                            "kind": self.view_kind_of(planned)}
+                    return status
         # v0.17 F-1b: pre-flight TCP probe. gRPC's `channel_ready()` wraps
         # OS-level socket errors in an opaque UNAVAILABLE StatusCode, so a
         # WSAECONNREFUSED / WSAETIMEDOUT bubbles up as a generic
@@ -554,15 +631,30 @@ class Session:
                 self.stop_boot_monitor(key)
                 forced = True
             else:
-                await client.close()
-                refs = self.refs.setdefault(key, {})
-                refs[owner_id] = refs.get(owner_id, 0) + 1
-                status = await existing.status()
-                status["shared"] = len(refs) > 1
-                status["primary_owner"] = self.owners.get(key, owner_id)
-                status["view"] = key
-                status["machine"] = self.machine_label(key)["machine"]
-                return status
+                # v0.31 Phase 1.1: same liveness check as the planned-key
+                # attach path above — a wedged cached view takes the
+                # fresh channel's place instead of returning stale state.
+                try:
+                    status = await existing.status()
+                except Exception:  # noqa: BLE001
+                    await existing.close()
+                    self.clients.pop(key, None)
+                    self.owners.pop(key, None)
+                    self.refs.pop(key, None)
+                    self.stop_boot_monitor(key)
+                else:
+                    await client.close()
+                    refs = self.refs.setdefault(key, {})
+                    refs[owner_id] = refs.get(owner_id, 0) + 1
+                    status["shared"] = len(refs) > 1
+                    status["primary_owner"] = self.owners.get(key, owner_id)
+                    status["view"] = key
+                    status["machine"] = self.machine_label(key)["machine"]
+                    if focus and owner:
+                        self._focus[owner] = {
+                            "machine": self.machine_of(key),
+                            "kind": self.view_kind_of(key)}
+                    return status
         self.clients[key] = client
         self.owners[key] = owner_id
         self.refs[key] = {owner_id: 1}
@@ -578,10 +670,15 @@ class Session:
             status["computer_name"] = computer_name
         if self.primary not in self.clients:
             self.primary = key
-        # First connect auto-focuses the caller on this machine when they
-        # hold no focus yet — "the box I just connected to" is the least
-        # surprising default. An existing focus is never moved silently.
-        if owner and owner not in self._focus:
+        # v0.31 Phase 1.1: connect auto-focuses the caller on the newly
+        # connected view by default (focus=True). Prior behavior
+        # ("first connect only") was a footgun — a caller that connected
+        # a second machine then issued a bare-name call would land on
+        # the first box without warning. focus=False preserves the
+        # historical no-op case for callers that manage focus themselves.
+        if focus and owner:
+            self._focus[owner] = {"machine": label, "kind": kind}
+        elif owner and owner not in self._focus:
             self._focus[owner] = {"machine": label, "kind": kind}
         # v14: a forced/fresh connect after a reboot still carries the old
         # view's boot record — flag the epoch change so callers know prior
@@ -928,8 +1025,15 @@ class Session:
         n = self.resolve_view_name(name)
         client = self.clients.get(n)
         if client is None:
+            # v0.31 Phase 1.1: enrich dead-view errors with the view's
+            # last-known endpoint so the caller sees WHAT to reconnect to,
+            # not just WHICH view is dead.
+            info = self._machine_info.get(n) or {}
+            ep = str(info.get("endpoint") or "")
+            ep_bit = f" (last endpoint: {ep})" if ep else ""
             raise RuntimeError(
-                f"not connected: target {n!r} — call target_manage(action='connect', name={n!r}) first")
+                f"not connected: target {n!r}{ep_bit} — call "
+                f"target_manage(action='connect', name={n!r}) first")
         return client
 
     def all_views(self) -> list[dict[str, Any]]:

@@ -87,6 +87,21 @@ struct HostInfo {
 
     // Diagnostics — one entry per probe that couldn't answer, human-readable.
     std::vector<std::string> probe_errors;
+
+    // v0.31 Phase 2.1: network identity. One row per IPv4 unicast address
+    // learned via GetAdaptersAddresses — the orchestrator uses this both
+    // for the registry observed_endpoints self-heal and for the Phase 2.4
+    // rediscover MAC-filter path.
+    struct AdapterRow {
+        std::string adapter;
+        std::string address;
+        uint32_t prefix_len = 0;
+        std::string origin;   // "dhcp" | "static" | "unknown"
+        std::string gateway;
+        std::string mac;
+        bool up = false;
+    };
+    std::vector<AdapterRow> ipv4;
 };
 
 // Populate `out` with everything the collector can answer without the
@@ -125,5 +140,10 @@ void ProbeKvaShadow(HostInfo& out);
 void ProbePatchGuard(HostInfo& out);
 
 } // namespace detail
+
+// v0.31 Phase 2.1: adapter probe exposed at namespace scope so the
+// Status handler can call it without the full Collect() cost (which pulls
+// SCM, registry, NtQSI, ...).
+void ProbeAdapters(HostInfo& out);
 
 } // namespace suspex::host

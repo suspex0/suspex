@@ -161,10 +161,11 @@ void FillStatus(google::protobuf::Message* msg, const std::string& err)
 // The four factory functions live in each of those TUs; this function
 // just fans out to them in the original construct-then-register order.
 void RegisterCoreServices(grpc::ServerBuilder& builder, const AgentConfig& cfg, DriverMgr& drv,
-                          ExecMgr& exec)
+                          ExecMgr& exec, host::NetPinMgr& netPin)
 {
     (void)exec; // reserved for future core services; unused today
     RegisterAgentSvc(builder, cfg, drv);
+    RegisterNetPinSvc(builder, cfg, netPin);
     RegisterMemorySvc(builder, cfg, drv);
     RegisterDebugSvc(builder, cfg, drv);
     RegisterBpSvc(builder, cfg, drv);

@@ -43,6 +43,25 @@ message StatusResponse {
   // uptimes by hand. 0/"" on agents that predate the fields.
   uint64 boot_epoch_ms = 12;
   string agent_instance_id = 13;
+  // v0.31 Phase 2.1: network identity echo. Lets the orchestrator
+  // self-heal machine endpoints when DHCP moves the box — the IPs the
+  // agent sees are authoritative where ARP/mDNS/getaddrinfo lie. Empty
+  // on agents that predate the field.
+  repeated AdapterInfo ipv4 = 14;
+}
+
+// v0.31 Phase 2.1: one entry per IPv4 unicast address learned via
+// GetAdaptersAddresses. The orchestrator uses this both for the registry
+// observed_endpoints self-heal and for the Phase 2.4 rediscover MAC-filter
+// path.
+message AdapterInfo {
+  string adapter      = 1; // FriendlyName, e.g. "Ethernet 2"
+  string address      = 2; // dotted IPv4
+  uint32 prefix_len   = 3; // 0..32
+  string origin       = 4; // "dhcp" | "static" | "unknown"
+  string gateway      = 5; // first default gateway IPv4 on this adapter, else ""
+  string mac          = 6; // "aa:bb:cc:dd:ee:ff"
+  bool   up           = 7; // operational status (IfOperStatusUp)
 }
 
 message DriverLoadRequest {
@@ -193,6 +212,45 @@ message HostInfoResponse {
   // orchestrator can render honest "we couldn't check X" gaps instead of
   // silently reporting a default value as truth.
   repeated string probe_errors = 90;
+
+  // ---- v0.31 Phase 2.1: network identity echo. The IPv4 unicast
+  // addresses the agent sees via GetAdaptersAddresses — the orchestrator
+  // compares these to its last-known endpoint to detect NIC flaps and
+  // feeds the rediscover candidate list.
+  repeated AdapterInfo ipv4 = 95;
+}
+
+// ------------------------- Static IPv4 pin (v0.31 Phase 2.2) ----
+// Deploy-time wiring reads/sets the agent's pinned adapter via the agent
+// config file; this RPC lets an orchestrator inspect current state and
+// (optionally) trigger a one-shot re-pin without a service restart.
+message NetPinStatusRequest {}
+message NetPinStatusResponse {
+  OpStatus status = 1;
+  bool enabled = 2;             // config-level enable
+  bool hold = 3;                // SUSPEX_NET_PIN_HOLD marker is set
+  string adapter = 4;           // configured FriendlyName
+  string pinned_address = 5;    // configured static IPv4
+  uint32 pinned_prefix = 6;
+  string pinned_gateway = 7;
+  string current_address = 8;   // what the adapter currently has
+  uint64 last_pin_at_epoch_ms = 9;
+  uint32 pin_attempts = 10;
+  uint32 pin_failures_streak = 11;
+  string last_error = 12;
+}
+message NetPinApplyRequest {
+  bool clear_hold = 1;          // drop the hold marker then re-pin
+}
+message NetPinApplyResponse {
+  OpStatus status = 1;
+  bool applied = 2;
+  string details = 3;
+}
+
+service NetPin {
+  rpc Status(NetPinStatusRequest) returns (NetPinStatusResponse); // v0.31 2.2
+  rpc Apply(NetPinApplyRequest) returns (NetPinApplyResponse);    // one-shot re-pin
 }
 
 // ------------------------------------------------------- Screen / UI (v15) ----
@@ -589,10 +647,15 @@ message PoolScanRequest {
   bool nonpaged_only = 2;
   bool paged_only = 3;
   uint32 max_results = 4;
-  bytes pattern = 5;       // <=16 bytes; empty = no content filter
+  bytes pattern = 5;       // v0.31 Phase 3.2: raised to <=64 bytes
   bytes mask = 6;          // same length as pattern; 0 or '?' = wildcard byte
   uint32 offset = 7;       // start byte of the content window inside each entry
-  uint32 content_span = 8; // bytes to read+scan; <=4096
+  uint32 content_span = 8; // v0.31 Phase 3.2: raised to <=64 KiB
+  // v0.31 Phase 3.2: resumable scans. The response's next_cursor echoes
+  // where the driver stopped; passing it back resumes from that entry
+  // (0 = fresh scan). Needed to drive wide sweeps that would otherwise
+  // blow max_results silently.
+  uint32 cursor = 9;
 }
 message PoolBlock {
   uint64 virtual_address = 1;
@@ -607,6 +670,15 @@ message PoolScanResponse {
   repeated PoolBlock entries = 2;
   uint32 required = 3;    // total big-pool entries seen before filter
   uint32 considered = 4;  // after tag/paged filter, before content filter
+  // v0.31 Phase 3.2: scan telemetry. holes counts entries where the
+  // content read failed (previously silent `continue`); span_truncated
+  // counts entries whose content span was clipped; last_index is the
+  // driver's internal scan cursor; next_cursor is the resume point for
+  // the next call (0 means the scan completed).
+  uint32 holes = 5;
+  uint32 span_truncated = 6;
+  uint32 last_index = 7;
+  uint32 next_cursor = 8;
 }
 
 // v5: server-streaming reads for >4 MiB ranges. Removes the manual-chunk
@@ -1171,6 +1243,13 @@ message RunShellRequest {
   string command = 2;
   string working_dir = 3;
   uint64 timeout_ms = 4;
+  // v0.31 Phase 2.3: base64-of-UTF-16LE command, spawned as
+  // ``powershell -EncodedCommand <b64>``. Immune to the double-parse
+  // mangling that bites ``-Command <quoted>`` on embedded quotes,
+  // backticks, newlines, and non-ASCII. Agent prefers encoded_command
+  // over command when both are set and shell==POWERSHELL. Empty on
+  // callers that predate this field.
+  string encoded_command = 5;
 }
 message RunShellResponse {
   OpStatus status = 1;
@@ -1563,6 +1642,13 @@ message ObjEnumRequest {
 message ObjEntry {
   string name = 1;
   string type = 2;         // object type name ("Device", "Driver", ...)
+  // v0.31 Phase 3.1: body VA + type index resolved by walking the
+  // OBJECT_DIRECTORY hash buckets (``ObpRootDirectoryObject`` ->
+  // OBJECT_HEADER). Both are 0 when the driver fell back to the
+  // address-less ZwQueryDirectoryObject path.
+  uint64 address    = 3;
+  uint32 type_index = 4;
+  string source     = 5;   // "walk" | "zwquery"
 }
 message ObjEnumResponse {
   OpStatus status = 1;

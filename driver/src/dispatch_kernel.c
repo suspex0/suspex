@@ -38,6 +38,7 @@ SIZE_T SuspxHandlePoolScan(_In_ WDFREQUEST Request, _Out_ NTSTATUS* Status)
     NTSTATUS st;
     SUSPEX_POOL_SCAN_IN local;
     ULONG count = 0, required = 0, considered = 0, capacity;
+    ULONG holes = 0, span_trunc = 0, last_idx = 0, next_cursor = 0;
 
     st = SuspxInput(Request, sizeof(SUSPEX_POOL_SCAN_IN), &inbuf, &inlen);
     if (!NT_SUCCESS(st)) {
@@ -57,14 +58,21 @@ SIZE_T SuspxHandlePoolScan(_In_ WDFREQUEST Request, _Out_ NTSTATUS* Status)
 
     st = SuspxPoolScan(&local,
                        (SUSPEX_POOL_ENTRY*)((PUCHAR)outbuf + sizeof(*hdr)),
-                       capacity, &count, &required, &considered);
+                       capacity, &count, &required, &considered,
+                       &holes, &span_trunc, &last_idx, &next_cursor);
     hdr->Status = (UINT32)st;
     hdr->Count = count;
     hdr->Required = required;
     hdr->Considered = considered;
-    SuspxLog("POOLSCAN tag=%08x flags=%x span=%u -> st=%x count=%u required=%u considered=%u",
-             local.TagFilter, local.Flags, local.ContentSpan,
-             hdr->Status, count, required, considered);
+    hdr->Holes = holes;
+    hdr->SpanTruncated = span_trunc;
+    hdr->LastIndex = last_idx;
+    hdr->NextCursor = next_cursor;
+    SuspxLog("POOLSCAN tag=%08x flags=%x span=%u cur=%u -> st=%x count=%u "
+             "required=%u considered=%u holes=%u span_trunc=%u last=%u next=%u",
+             local.TagFilter, local.Flags, local.ContentSpan, local.Cursor,
+             hdr->Status, count, required, considered,
+             holes, span_trunc, last_idx, next_cursor);
     *Status = STATUS_SUCCESS;
     return sizeof(SUSPEX_POOL_HDR) + (SIZE_T)count * sizeof(SUSPEX_POOL_ENTRY);
 }

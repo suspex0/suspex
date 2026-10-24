@@ -10,6 +10,7 @@
 #include "../exec.hpp"
 #include "../events.hpp"
 #include "../dbg/dbg_session.hpp"
+#include "../host/net_pin.hpp"
 
 #include <string>
 
@@ -34,7 +35,7 @@ grpc::Status CheckAuth(grpc::ServerContext* ctx, const std::string& token);
 void FillStatus(google::protobuf::Message* msg, const std::string& err);
 
 void RegisterCoreServices(grpc::ServerBuilder& builder, const AgentConfig& cfg, DriverMgr& drv,
-                          ExecMgr& exec);
+                          ExecMgr& exec, host::NetPinMgr& netPin);
 void RegisterFileExecServices(grpc::ServerBuilder& builder, const AgentConfig& cfg, DriverMgr& drv,
                               ExecMgr& exec);
 void RegisterRegistryService(grpc::ServerBuilder& builder, const AgentConfig& cfg);
@@ -49,9 +50,9 @@ void RegisterEventsService(grpc::ServerBuilder& builder, const AgentConfig& cfg,
                            DriverMgr& drv);
 
 inline void RegisterServices(grpc::ServerBuilder& builder, const AgentConfig& cfg, DriverMgr& drv,
-                             ExecMgr& exec)
+                             ExecMgr& exec, host::NetPinMgr& netPin)
 {
-    RegisterCoreServices(builder, cfg, drv, exec);
+    RegisterCoreServices(builder, cfg, drv, exec, netPin);
     RegisterFileExecServices(builder, cfg, drv, exec);
     RegisterRegistryService(builder, cfg);
     RegisterWatchdogService(builder, cfg, drv);

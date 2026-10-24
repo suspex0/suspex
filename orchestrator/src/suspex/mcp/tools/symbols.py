@@ -353,7 +353,8 @@ def register(mcp, ctx: Context) -> None:
             download: bool = True, cache_dir: str = "",
             view: str = "", pid: int = 0,
             pdb_guid: str = "", pdb_age: int | str = 0,
-            pdb_name: str = "", max_disp: int | str = 0x1000) -> str:
+            pdb_name: str = "", max_disp: int | str = 0x1000,
+            fallback: str = "") -> str:
         """PDB-backed symbol + type queries — dbghelp on the orchestrator,
         no target contact unless you ask for a live module base. Images:
         path= beats module= (artifacts/dumps + ingested). PDB identity
@@ -517,11 +518,99 @@ def register(mcp, ctx: Context) -> None:
                     if base_i:
                         entry["va"] = base_i + r
                     out_syms[nm] = entry
+                if not out_syms and fallback == "pattern":
+                    # v0.31 Phase 1.7: curated-pattern fallback for sealed
+                    # kernels. Reads a short window of the live module and
+                    # scans each requested name's signatures; the recovered
+                    # VA is the rip+disp32 target of the matched prologue.
+                    # Confidence is low by default — the pattern pack is a
+                    # last-resort source when PDBs are unreachable, never
+                    # audit-grade.
+                    try:
+                        from ... import symbols_patterns as _sp
+                    except Exception:  # noqa: BLE001
+                        _sp = None  # type: ignore
+                    if _sp is not None and view:
+                        try:
+                            client = ctx.session.require_client(view)
+                        except Exception:  # noqa: BLE001
+                            client = None
+                        if client is not None:
+                            kernel = ctx.session.view_kind_of(view) \
+                                != "user"
+                            base_live = await _live_module_base(
+                                ctx, view, img_name, pid) if not base_i \
+                                else base_i
+                            # Read a generous window — most kernel exports
+                            # live in .text, which starts near base.
+                            buf = b""
+                            try:
+                                buf = await client.mem_read(
+                                    pid, int(base_live), 0x40_0000,
+                                    "kernel" if kernel else "user")
+                            except Exception:  # noqa: BLE001
+                                buf = b""
+                            if buf and base_live:
+                                for nm in want:
+                                    entries = _sp.pack_entries(
+                                        module=img_name, name=nm)
+                                    best_va: int | None = None
+                                    hits = 0
+                                    for entry in entries:
+                                        needle, mask = _sp.parse_pattern(
+                                            entry.pattern)
+                                        # Scan buf for a masked match.
+                                        for i in range(
+                                                0, len(buf) - len(needle) + 1):
+                                            ok = True
+                                            for k in range(len(needle)):
+                                                if mask[k] and \
+                                                        buf[i + k] != needle[k]:
+                                                    ok = False
+                                                    break
+                                            if not ok:
+                                                continue
+                                            disp = _sp.disp_at(
+                                                buf, i +
+                                                entry.rip_rel_disp_offset)
+                                            # Instruction ends 4 bytes
+                                            # after the disp32 within the
+                                            # 7-byte LEA/MOV prologue.
+                                            insn_end = (int(base_live) + i
+                                                        + entry
+                                                        .rip_rel_disp_offset
+                                                        + 4)
+                                            match_va = (insn_end + disp) & \
+                                                0xFFFF_FFFF_FFFF_FFFF
+                                            hits += 1
+                                            if best_va is None:
+                                                best_va = match_va
+                                            elif best_va != match_va:
+                                                best_va = None
+                                                break
+                                    if best_va is not None:
+                                        out_syms[nm] = {
+                                            "rva": best_va -
+                                                   int(base_live),
+                                            "va": best_va,
+                                            "source": "pattern",
+                                            "confidence":
+                                                ("high" if hits >= 2
+                                                 else "low"),
+                                            "pattern_hits": hits,
+                                        }
                 if not out_syms:
                     return _j({"ok": False, "kind": "symbol_not_found",
                                "error": f"none of {want!r} resolved in "
-                                        f"{img_name!r}",
-                               "image": img_name})
+                                        f"{img_name!r}"
+                                        + (" (pattern fallback also "
+                                           "failed)" if fallback == "pattern"
+                                           else ""),
+                               "image": img_name,
+                               "hint": ("try fallback='pattern' with "
+                                        "view='kernel' when PDBs are "
+                                        "unreachable")
+                                        if fallback != "pattern" else ""})
                 payload: dict[str, Any] = {"ok": True, "image": img_name,
                                            "symbols": out_syms}
                 if missing:

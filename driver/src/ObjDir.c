@@ -40,7 +40,78 @@ typedef struct _SUSPEX_OBJ_WALK {
 
 #define SUSPEX_OBJDIR_SCRATCH 64 // SUSPEX_DIR_INFO slots per query
 
-static VOID SuspxObjEmit(_In_ PUNICODE_STRING Name, _In_ PUNICODE_STRING TypeName,
+// v0.31 Phase 3.1: optional object-body resolution. ObReferenceObjectByName
+// is the public kernel API that locates a named object; we use it as the
+// address resolver when the caller passes a parent-directory path (so we
+// can assemble "<parent>\<name>" per entry). Failure to resolve just leaves
+// Address = 0 and Source = 0 (zwquery). The code path never widens the
+// trust surface — only the body VA + type-index are exposed, no handle is
+// kept open past the function return.
+extern POBJECT_TYPE* IoDriverObjectType;
+extern POBJECT_TYPE* IoDeviceObjectType;
+
+static VOID SuspxObjResolveAddress(_In_ PCWSTR ParentPath,
+                                   _In_ PUNICODE_STRING Name,
+                                   _In_ PUNICODE_STRING TypeName,
+                                   _Out_ PUINT64 Address,
+                                   _Out_ PUINT32 TypeIndex,
+                                   _Out_ PUINT32 Source)
+{
+    NTSTATUS st;
+    UNICODE_STRING full;
+    WCHAR buf[SUSPEX_OBJ_PATH_CCH + SUSPEX_OBJ_NAME_CCH + 2];
+    SIZE_T plen = 0;
+    SIZE_T nlen;
+    POBJECT_TYPE want_type = NULL;
+    PVOID obj = NULL;
+
+    *Address = 0;
+    *TypeIndex = 0;
+    *Source = 0;
+
+    if (ParentPath == NULL || Name == NULL || Name->Buffer == NULL) {
+        return;
+    }
+    st = RtlStringCchLengthW(ParentPath, SUSPEX_OBJ_PATH_CCH, &plen);
+    if (!NT_SUCCESS(st) || plen == 0) {
+        return;
+    }
+    nlen = Name->Length / sizeof(WCHAR);
+    if (plen + 1 + nlen >= RTL_NUMBER_OF(buf)) {
+        return;
+    }
+    RtlCopyMemory(buf, ParentPath, plen * sizeof(WCHAR));
+    buf[plen] = L'\\';
+    RtlCopyMemory(buf + plen + 1, Name->Buffer, nlen * sizeof(WCHAR));
+    buf[plen + 1 + nlen] = L'\0';
+    RtlInitUnicodeString(&full, buf);
+
+    // Pick a type pointer by TypeName; only the two we care about today.
+    if (TypeName != NULL && TypeName->Buffer != NULL) {
+        UNICODE_STRING drv, dev;
+        RtlInitUnicodeString(&drv, L"Driver");
+        RtlInitUnicodeString(&dev, L"Device");
+        if (RtlEqualUnicodeString(TypeName, &drv, TRUE)) {
+            want_type = (IoDriverObjectType ? *IoDriverObjectType : NULL);
+        } else if (RtlEqualUnicodeString(TypeName, &dev, TRUE)) {
+            want_type = (IoDeviceObjectType ? *IoDeviceObjectType : NULL);
+        }
+    }
+    if (want_type == NULL) {
+        return;
+    }
+    st = ObReferenceObjectByName(&full, OBJ_CASE_INSENSITIVE, NULL, 0,
+                                 want_type, KernelMode, NULL, &obj);
+    if (!NT_SUCCESS(st) || obj == NULL) {
+        return;
+    }
+    *Address = (UINT64)(ULONG_PTR)obj;
+    *Source = 1;
+    ObDereferenceObject(obj);
+}
+
+static VOID SuspxObjEmit(_In_opt_ PCWSTR ParentPath,
+                         _In_ PUNICODE_STRING Name, _In_ PUNICODE_STRING TypeName,
                          _In_ BOOLEAN IsDir, _Inout_ SUSPEX_OBJ_WALK* Walk)
 {
     PSUSPEX_OBJ_ENTRY e;
@@ -64,6 +135,8 @@ static VOID SuspxObjEmit(_In_ PUNICODE_STRING Name, _In_ PUNICODE_STRING TypeNam
     }
     RtlCopyMemory(e->TypeName, TypeName->Buffer, wch * sizeof(WCHAR));
     e->IsDirectory = IsDir ? 1 : 0;
+    SuspxObjResolveAddress(ParentPath, Name, TypeName,
+                           &e->Address, &e->TypeIndex, &e->Source);
     Walk->Written++;
 }
 
@@ -122,7 +195,7 @@ static NTSTATUS SuspxObjWalkDir(_In_ PCWSTR Path, _In_ UINT32 Depth,
                 break; // NULL-name entry terminates the batch
             }
             BOOLEAN isDir = RtlEqualUnicodeString(&info[i].TypeName, &dirType, TRUE);
-            SuspxObjEmit(&info[i].Name, &info[i].TypeName, isDir, Walk);
+            SuspxObjEmit(Path, &info[i].Name, &info[i].TypeName, isDir, Walk);
 
             if (isDir && Depth > 1 && !Walk->Truncated) {
                 SIZE_T nameLen = info[i].Name.Length / sizeof(WCHAR);

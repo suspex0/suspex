@@ -42,12 +42,17 @@ Agent (suspex_agent.exe, C++20, runs on target as service or console)
    └── dump/       file-layout PE reconstruction
 Driver (suspex_driver.sys): user/kernel/physical memory R/W, module lists,
 thread context + DR0-3, sw/hw breakpoints, kernel-initiated user APC remote call
-Mapper (mapper.exe): custom manual-map loader (relocations, imports, APC trigger)
+Mapper (mapper.exe): custom manual-map loader (relocations, imports, APC trigger) — deprecated
 IDA bridge: streamed binaries → artifacts/<sha256>/ → headless idalib-mcp
 (mrexodia/ida-pro-mcp) proxied through the ida_manage tool
 Findings: SQLite ledger + markdown/HTML report generator (durable LLM state)
 Dashboard: static SPA + WebSocket live feed served by the orchestrator
 ```
+
+> **Deprecated:** `mapper.exe` is deprecated and kept only for existing
+> workflows. Stealth / manual-mapping features will be added in a later
+> release; the supported path today is loading the driver as a service via
+> `target_manage(action='driver_load', method='service')`.
 
 ## Repository layout
 
@@ -57,7 +62,7 @@ Dashboard: static SPA + WebSocket live feed served by the orchestrator
 | `driver/` | `suspex_driver.sys` KMDF driver (C, WDK) |
 | `comm/` | user-mode C++ driver comm lib (ABI header + static asserts) |
 | `tools/` | `drv_exerciser.exe` — one subcommand per IOCTL (safety gate) |
-| `mapper/` | manual-map loader console exe |
+| `mapper/` | manual-map loader console exe (deprecated; stealth features planned) |
 | `agent/` | `suspex_agent.exe` gRPC server (service or `--dev`) |
 | `orchestrator/` | Python 3.12: MCP server, agent client, IDA bridge, findings, dashboard |
 | `scripts/` | build, deploy, install, smoke tests, roundtrip verification |

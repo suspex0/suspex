@@ -170,6 +170,29 @@ KNOWN_KINDS: frozenset[str] = frozenset({
 
     # ------ v0.30 (machine registry) ------
     "machines",            # machines_register/set/unregister/machines
+
+    # ------ v0.31 Phase 1.4 (watchdog refusal) ------
+    "watchdog_no_kicker",     # bare arm without a kicker refused by default
+    "watchdog_full",          # id=0 auto-allocate: no free slot in 1..64
+    "watchdog_list_failed",   # id=0 auto-allocate: watchdog_list() failed
+    "watchdog_armed",         # timeline event — currently-armed watchdog row
+
+    # ------ v0.31 Phase 1.5 (mem_rw follow_chain failures) ------
+    "bad_offset",             # offsets[i] not parseable
+    "hop_read_failed",        # mid-chain deref read raised
+    "hop_short_read",         # mid-chain deref returned < 8 bytes
+    "terminal_read_failed",   # terminal_size byte read raised
+    "expect_ascii_failed",    # terminal bytes failed printable-ASCII check
+    "expect_nonzero_failed",  # a hop deref returned 0 while expect_nonzero
+    "expect_module_failed",   # terminal VA fell outside the expected module
+
+    # ------ v0.31 Phase 1.6 (timeline) ------
+    "boot_identity",          # timeline event — last-seen boot identity
+    "boot_notice",            # timeline event — parked boot notice
+    "op",                     # timeline event — orchestrator op log row
+
+    # ------ v0.31 Phase 2.4 (rediscover) ------
+    "no_candidates",          # rediscover: nothing to probe
 })
 
 

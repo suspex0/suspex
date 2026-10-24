@@ -2,6 +2,8 @@
 
 #include <windows.h>
 
+#include <functional>
+#include <mutex>
 #include <thread>
 
 namespace suspex {
@@ -12,6 +14,15 @@ static int (*g_fn)(int, char**) = nullptr;
 static int g_argc = 0;
 static char** g_argv = nullptr;
 static std::thread g_worker;
+static HANDLE g_worker_done = nullptr; // set when g_fn returned
+static std::mutex g_hook_m;
+static std::function<void()> g_stop_hook;
+
+void SetServiceStopHook(std::function<void()> hook)
+{
+    std::lock_guard<std::mutex> lk(g_hook_m);
+    g_stop_hook = std::move(hook);
+}
 
 static void SetState(DWORD state, DWORD exit = 0, DWORD waitHint = 0)
 {
@@ -26,26 +37,42 @@ static void SetState(DWORD state, DWORD exit = 0, DWORD waitHint = 0)
     SetServiceStatus(g_handle, &g_status);
 }
 
-// v1 stop handling is coarse: SCM STOP reports STOPPED and exits the process
-// (the gRPC server has no async shutdown hook wired here yet). Lab-acceptable:
-// redeploy flows reboot or re-run the installer anyway.
+// v0.31 Phase 5: STOP now asks the agent to unwind first (SetServiceStopHook
+// — the gRPC server shuts down, breadcrumbs flush, worker reports STOPPED).
+// ExitProcess stays as a bounded backstop so SCM never hangs on a wedged
+// stop path.
 static DWORD WINAPI ServiceCtrlHandler(DWORD control, DWORD, LPVOID, LPVOID)
 {
     switch (control) {
     case SERVICE_CONTROL_STOP:
-    case SERVICE_CONTROL_SHUTDOWN:
-        SetState(SERVICE_STOP_PENDING, 0, 5000);
-        SetState(SERVICE_STOPPED);
+    case SERVICE_CONTROL_SHUTDOWN: {
+        SetState(SERVICE_STOP_PENDING, 0, 15000);
+        std::function<void()> hook;
+        {
+            std::lock_guard<std::mutex> lk(g_hook_m);
+            hook = g_stop_hook;
+        }
+        if (hook) {
+            hook();
+        }
+        if (g_worker_done) {
+            WaitForSingleObject(g_worker_done, 12000);
+        }
         ExitProcess(0);
         return NO_ERROR;
+    }
     default:
         return NO_ERROR;
     }
 }
 
-static VOID WINAPI ServiceMain(DWORD, LPWSTR*)
+static VOID WINAPI ServiceMain(DWORD argc, LPWSTR* argv)
 {
-    g_handle = RegisterServiceCtrlHandlerExW(L"SuspexAgent", ServiceCtrlHandler, nullptr);
+    // Register under the name SCM actually used (argv[0]); the hardcoded
+    // fallback only covers exotic dispatch paths. A mismatched name made
+    // RegisterServiceCtrlHandlerExW fail and the service die silently.
+    LPCWSTR name = (argc > 0 && argv && argv[0]) ? argv[0] : L"SuspexAgent";
+    g_handle = RegisterServiceCtrlHandlerExW(name, ServiceCtrlHandler, nullptr);
     if (!g_handle) {
         // never fall back to console mode when launched by SCM: a silent
         // console run makes SCM time out and kill the process (7009/7034)
@@ -54,10 +81,14 @@ static VOID WINAPI ServiceMain(DWORD, LPWSTR*)
     g_status.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
     g_status.dwControlsAccepted = SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN;
     SetState(SERVICE_START_PENDING, 0, 5000);
+    g_worker_done = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     g_worker = std::thread([] {
         SetState(SERVICE_RUNNING);
         g_fn(g_argc, g_argv);
         SetState(SERVICE_STOPPED);
+        if (g_worker_done) {
+            SetEvent(g_worker_done);
+        }
     });
     // SCM blocks here until the process exits
     g_worker.join();

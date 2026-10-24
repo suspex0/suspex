@@ -25,6 +25,123 @@ if _version_not_supported:
     )
 
 
+class NetPinStub:
+    """Missing associated documentation comment in .proto file."""
+
+    def __init__(self, channel):
+        """Constructor.
+
+        Args:
+            channel: A grpc.Channel.
+        """
+        self.Status = channel.unary_unary(
+                '/suspex.NetPin/Status',
+                request_serializer=suspex__pb2.NetPinStatusRequest.SerializeToString,
+                response_deserializer=suspex__pb2.NetPinStatusResponse.FromString,
+                _registered_method=True)
+        self.Apply = channel.unary_unary(
+                '/suspex.NetPin/Apply',
+                request_serializer=suspex__pb2.NetPinApplyRequest.SerializeToString,
+                response_deserializer=suspex__pb2.NetPinApplyResponse.FromString,
+                _registered_method=True)
+
+
+class NetPinServicer:
+    """Missing associated documentation comment in .proto file."""
+
+    def Status(self, request, context):
+        """v0.31 2.2
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Apply(self, request, context):
+        """one-shot re-pin
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+
+def add_NetPinServicer_to_server(servicer, server):
+    rpc_method_handlers = {
+            'Status': grpc.unary_unary_rpc_method_handler(
+                    servicer.Status,
+                    request_deserializer=suspex__pb2.NetPinStatusRequest.FromString,
+                    response_serializer=suspex__pb2.NetPinStatusResponse.SerializeToString,
+            ),
+            'Apply': grpc.unary_unary_rpc_method_handler(
+                    servicer.Apply,
+                    request_deserializer=suspex__pb2.NetPinApplyRequest.FromString,
+                    response_serializer=suspex__pb2.NetPinApplyResponse.SerializeToString,
+            ),
+    }
+    generic_handler = grpc.method_handlers_generic_handler(
+            'suspex.NetPin', rpc_method_handlers)
+    server.add_generic_rpc_handlers((generic_handler,))
+    server.add_registered_method_handlers('suspex.NetPin', rpc_method_handlers)
+
+
+ # This class is part of an EXPERIMENTAL API.
+class NetPin:
+    """Missing associated documentation comment in .proto file."""
+
+    @staticmethod
+    def Status(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/suspex.NetPin/Status',
+            suspex__pb2.NetPinStatusRequest.SerializeToString,
+            suspex__pb2.NetPinStatusResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Apply(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/suspex.NetPin/Apply',
+            suspex__pb2.NetPinApplyRequest.SerializeToString,
+            suspex__pb2.NetPinApplyResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+
 class AgentStub:
     """Missing associated documentation comment in .proto file."""
 

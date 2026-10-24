@@ -2,7 +2,7 @@
 
 #include "build_version.h"
 
-#define SUSPEX_AGENT_VERSION "0.10.0+" SUSPEX_GIT_SHA SUSPEX_GIT_DIRTY
+#define SUSPEX_AGENT_VERSION "0.31.0+" SUSPEX_GIT_SHA SUSPEX_GIT_DIRTY
 
 #include <windows.h>
 #include <string>

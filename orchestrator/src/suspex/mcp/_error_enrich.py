@@ -276,7 +276,9 @@ def classify(msg: str, tool: str = "", action: str = "") -> tuple[str, str]:
 
 
 def enrich_error(tool: str, action: str, msg: str,
-                 *, driver_version: str = "") -> dict[str, str]:
+                 *, driver_version: str = "",
+                 view: str = "", endpoint: str = "",
+                 focus_hint: str = "") -> dict[str, str]:
     """Full pipeline: enrich the message text, then classify to (kind, hint).
 
     Returns a dict suitable for spreading into a `{ok: False, ...}` envelope:
@@ -290,9 +292,33 @@ def enrich_error(tool: str, action: str, msg: str,
     literal in any classified hint is annotated with the connected
     driver's actual version so the caller sees "you have 1.3 — safe" or
     "you have 1.1 — DANGEROUS" rather than a static warning.
+
+    v0.31 Phase 1.1: for dead-view / channel-unavailable errors, the
+    caller passes the focused view's name and last-known endpoint, plus
+    an optional focus_hint. The returned ``hint`` is augmented with
+    "connect host=<ep> / use machine=<view>" so the caller sees the
+    endpoint it was dialing and the exact fix.
     """
     enriched = enrich_win32(str(msg))
     kind, hint = classify(enriched, tool=tool, action=action)
+    _NET_KINDS = {"channel_unavailable", "connect_timeout", "connect_refused",
+                  "connect_blocked", "host_unreachable",
+                  "network_unreachable", "deadline_exceeded"}
+    if kind in _NET_KINDS and (view or endpoint or focus_hint):
+        extra_bits: list[str] = []
+        if endpoint:
+            extra_bits.append(f"last endpoint tried: {endpoint}")
+        if view:
+            extra_bits.append(
+                f"target_manage(action='connect', name={view!r}) rebuilds "
+                "the channel; target_manage(action='rediscover', "
+                f"machine={view.split('.', 1)[0]!r}) probes alternates")
+        if focus_hint:
+            extra_bits.append(focus_hint)
+        if hint:
+            hint = hint + " — " + "; ".join(extra_bits)
+        else:
+            hint = "; ".join(extra_bits)
     if hint and driver_version and "driver < 1.2" in hint:
         try:
             v = tuple(int(x) for x in driver_version.split(".") if x.isdigit())

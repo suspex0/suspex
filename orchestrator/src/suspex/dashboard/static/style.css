@@ -213,3 +213,7 @@ td.mono, .mono { font-family: var(--mono); }
 .toggle { font-size: 0.68rem; color: var(--muted); display: flex; align-items: center; gap: 0.3rem; cursor: pointer; }
 
 .empty { color: var(--muted); font-size: 0.78rem; font-style: italic; }
+
+.form-err.sticky-err { color: #d3869b; font-weight: 600; }
+.add-form .chk { display: flex; align-items: center; gap: 8px; font-size: 12px; opacity: 0.9; }
+.add-form .chk input { width: auto; }

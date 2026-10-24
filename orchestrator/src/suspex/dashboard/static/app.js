@@ -78,7 +78,7 @@ function renderPosture(agent) {
     if (t.soft) chip.appendChild(el("span", "chip-soft", "driver-absent default"));
     grid.appendChild(chip);
   }
-  // PatchGuard — often a descriptive string.
+  // PatchGuard ??? often a descriptive string.
   const pg = agent.patchguard_state ?? agent.patchguard_expected;
   if (pg != null) {
     const t = triState(pg);
@@ -88,11 +88,11 @@ function renderPosture(agent) {
     grid.appendChild(chip);
   }
   $("posture-note").textContent = agent.driver_present
-    ? "driver-verified" : "driver absent — some values unverified";
+    ? "driver-verified" : "driver absent ??? some values unverified";
 }
 
 function fmtUptime(ms) {
-  if (!ms && ms !== 0) return "–";
+  if (!ms && ms !== 0) return "???";
   let s = Math.floor(ms / 1000);
   const d = Math.floor(s / 86400); s -= d * 86400;
   const h = Math.floor(s / 3600); s -= h * 3600;
@@ -100,21 +100,38 @@ function fmtUptime(ms) {
   return [d && d + "d", h && h + "h", m && m + "m", s + "s"].filter(Boolean).join(" ");
 }
 
+// Marketing OS name. Win11 reports version 10.0 (RtlGetVersion never got
+// the memo), so the name derives from the build number plus the
+// registry's DisplayVersion (25H2/24H2/...) that host_info carries.
+// 26200 -> "Windows 11 25H2 Pro (26200)".
+function osDisplayName(agent) {
+  const os = agent.os || {};
+  const build = parseInt(os.build_major || agent.os_build || "0", 10) || 0;
+  const disp = os.display_version || "";
+  const edition = os.edition_id || "";
+  let name = "";
+  if (build >= 22000) name = "Windows 11";
+  else if (build >= 10240) name = "Windows 10";
+  if (!name) name = agent.os_version || os.product_name || "???";
+  else if (disp) name += " " + disp;
+  if (edition && !name.toLowerCase().includes(edition.toLowerCase()))
+    name += " " + edition;
+  return name + (build ? ` (${build})` : "");
+}
+
 function renderHost(agent) {
   const dl = $("host-dl");
   dl.innerHTML = "";
   if (!agent) { dl.appendChild(el("div", "empty", "no target connected")); return; }
   const health = agent.suspex_driver_health || {};
-  const os = agent.os || {};
   const rows = [
-    ["Driver state", agent.driver_state || "–"],
+    ["Driver state", agent.driver_state || "???"],
     ["Suspex driver", health.ok === false ? (health.error || "unhealthy")
-      : (health.state || health.status || (health.ok ? "ok" : "–"))],
-    ["OS", (os.name || os.version || agent.os_version || "–") +
-      (agent.os_build ? ` (${agent.os_build})` : "")],
+      : (health.state || health.status || (health.ok ? "ok" : "???"))],
+    ["OS", osDisplayName(agent)],
     ["PC uptime", fmtUptime(agent.pc_uptime_ms)],
     ["Service uptime", fmtUptime(agent.service_uptime_ms)],
-    ["Boot time", agent.boot_time || "–"],
+    ["Boot time", agent.boot_time || "???"],
   ];
   for (const [k, v] of rows) {
     dl.appendChild(el("dt", null, k));
@@ -241,6 +258,10 @@ function machineCard(m) {
     for (const t of m.tags) tags.appendChild(el("span", "tag", t));
     card.appendChild(tags);
   }
+  if (m.source === "adhoc" || (m.source !== "registry" && m.connected)) {
+    card.appendChild(el("div", "mcard-note",
+      "live view ??? not registered; Remove drops the connection"));
+  }
 
   const vrow = el("div", "views-row");
   const connected = new Set(m.connected_views || []);
@@ -250,7 +271,7 @@ function machineCard(m) {
     vrow.appendChild(dot);
     vrow.appendChild(document.createTextNode(kind));
   }
-  const src = el("span", "src-tag", " · " + (m.source || ""));
+  const src = el("span", "src-tag", " ?? " + (m.source || ""));
   vrow.appendChild(src);
   card.appendChild(vrow);
 
@@ -265,10 +286,12 @@ function machineCard(m) {
   if (m.connected)
     act.appendChild(mkBtn("Disconnect", "btn-danger", () => disconnectMachine(m.machine)));
   act.appendChild(mkBtn("Use", "", () => useMachine(m.machine)));
-  if (m.source === "registry") {
-    act.appendChild(mkBtn("Edit", "", () => openEditForm(m)));
-    act.appendChild(mkBtn("Delete", "btn-danger", () => deleteMachine(m.machine)));
-  }
+  act.appendChild(mkBtn("Edit", "", () => openEditForm(m)));
+  // Remove works for every source now: registry entries are unregistered,
+  // YAML aliases lose their metadata overlay, and live-only (adhoc) cards
+  // drop their connected views ??? previously those cards were undeletable
+  // because the row is regenerated from the live views every refresh.
+  act.appendChild(mkBtn("Remove", "btn-danger", () => deleteMachine(m.machine)));
   card.appendChild(act);
   return card;
 }
@@ -282,7 +305,7 @@ async function refreshMachines() {
     if (focus) { $("focus-pill").hidden = false; $("focus-pill").textContent = "focus: " + focus; }
     else $("focus-pill").hidden = true;
     if (!r.machines || !r.machines.length) {
-      box.appendChild(el("div", "empty", "no machines — add one above"));
+      box.appendChild(el("div", "empty", "no machines ??? add one above"));
       return;
     }
     for (const m of r.machines) box.appendChild(machineCard(m));
@@ -291,7 +314,7 @@ async function refreshMachines() {
 
 async function connectMachine(alias, views) {
   const r = await sendJSON("POST", `/api/machines/${encodeURIComponent(alias)}/connect`, { views });
-  if (!r.ok || r.data.ok === false) flash(JSON.stringify(r.data.views || r.data.error || r.data));
+  if (!r.ok || r.data.ok === false) flash(JSON.stringify(r.data.views || r.data.error || r.data), true);
   refreshMachines(); refreshStatus();
 }
 async function disconnectMachine(alias) {
@@ -303,13 +326,20 @@ async function useMachine(alias) {
   refreshMachines();
 }
 async function deleteMachine(alias) {
-  if (!confirm(`Remove machine "${alias}" from the registry?`)) return;
+  if (!confirm(`Remove machine "${alias}" (registry entry + live views)?`)) return;
   const r = await sendJSON("DELETE", `/api/machines/${encodeURIComponent(alias)}`);
-  if (r.data.ok === false) flash(r.data.error || "delete failed");
+  if (r.data.ok === false) { flash(r.data.error || "remove failed", true); return; }
+  if ((r.data.disconnected || []).length)
+    flash(`removed ??? dropped views: ${r.data.disconnected.join(", ")}`);
   refreshMachines();
 }
 
-function flash(msg) { $("add-err").textContent = msg; setTimeout(() => { $("add-err").textContent = ""; }, 6000); }
+function flash(msg, sticky = false) {
+  const e = $("add-err");
+  e.textContent = msg;
+  e.classList.toggle("sticky-err", sticky);
+  if (!sticky) setTimeout(() => { e.textContent = ""; e.classList.remove("sticky-err"); }, 6000);
+}
 
 // ---- add / edit form -----------------------------------------------------
 const form = $("add-form");
@@ -320,14 +350,22 @@ function showForm(show) {
   if (show) form.querySelector('[name="alias"]').focus();
 }
 $("add-btn").onclick = () => { editMode = null; form.reset();
-  form.querySelector('[name="alias"]').disabled = false;
+  const alias = form.querySelector('[name="alias"]');
+  alias.disabled = false;
+  alias.readOnly = false;
   $("add-err").textContent = ""; showForm(form.hidden); };
 $("add-cancel").onclick = () => showForm(false);
 
 function openEditForm(m) {
   editMode = m.machine;
-  form.querySelector('[name="alias"]').value = m.machine;
-  form.querySelector('[name="alias"]').disabled = true;
+  const alias = form.querySelector('[name="alias"]');
+  // readOnly, NOT disabled: FormData silently excludes disabled inputs,
+  // and the submit handler then crashed on null.trim() before ever
+  // sending — every edit was a silent no-op. readOnly keeps the field
+  // uneditable but submitted.
+  alias.value = m.machine;
+  alias.disabled = false;
+  alias.readOnly = true;
   const eps = m.endpoints || {};
   const [kh, kp] = (eps.kernel || "").split(":");
   const [, up] = (eps.user || "").split(":");
@@ -348,23 +386,31 @@ form.addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const fd = new FormData(form);
   const body = {
-    alias: fd.get("alias").trim(),
-    host: fd.get("host").trim(),
+    alias: (fd.get("alias") || editMode || "").toString().trim(),
+    host: (fd.get("host") || "").toString().trim(),
     kernel_port: Number(fd.get("kernel_port")) || 0,
     user_port: Number(fd.get("user_port")) || 0,
-    token: fd.get("token").trim(),
+    token: (fd.get("token") || "").toString().trim(),
     trust: fd.get("trust"),
-    purpose: fd.get("purpose").trim(),
-    note: fd.get("note").trim(),
-    tags: fd.get("tags").trim(),
+    purpose: (fd.get("purpose") || "").toString().trim(),
+    note: (fd.get("note") || "").toString().trim(),
+    tags: (fd.get("tags") || "").toString().trim(),
+    // YAML-defined machines reject endpoint changes unless force is set —
+    // the checkbox is the explicit override for "the box moved, update it".
+    force: fd.get("force") === "on",
   };
+  if (!body.alias) { flash("alias is required", true); return; }
   const url = editMode
     ? `/api/machines/${encodeURIComponent(editMode)}`
     : "/api/machines";
   const r = await sendJSON("POST", url, body);
-  if (r.data.ok === false) { flash(r.data.error || "save failed"); return; }
+  if (r.data.ok === false) {
+    flash(r.data.error || "save failed", true);
+    return;
+  }
   showForm(false);
   form.querySelector('[name="alias"]').disabled = false;
+  form.querySelector('[name="alias"]').readOnly = false;
   refreshMachines();
 });
 

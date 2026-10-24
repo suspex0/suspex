@@ -120,7 +120,11 @@ static NTSTATUS SuspxReadKernelWindow(_In_ UINT64 Va, _Out_writes_bytes_(Len) PV
 NTSTATUS SuspxPoolScan(_In_ const SUSPEX_POOL_SCAN_IN* In,
                        _Out_writes_to_(Capacity, *Written) SUSPEX_POOL_ENTRY* Out,
                        _In_ ULONG Capacity, _Out_ PULONG Written, _Out_ PULONG Required,
-                       _Out_ PULONG Considered)
+                       _Out_ PULONG Considered,
+                       _Out_opt_ PULONG Holes,
+                       _Out_opt_ PULONG SpanTruncated,
+                       _Out_opt_ PULONG LastIndex,
+                       _Out_opt_ PULONG NextCursor)
 {
     SUSPEX_SBP_INFO* info = NULL;
     ULONG info_len = 0;
@@ -133,10 +137,17 @@ NTSTATUS SuspxPoolScan(_In_ const SUSPEX_POOL_SCAN_IN* In,
     ULONG want_paged = (In->Flags & SUSPEX_POOL_FLAG_PAGED_ONLY) != 0;
     PVOID scratch = NULL;
     ULONG i, saw = 0, considered = 0, wrote = 0;
+    ULONG holes = 0;
+    ULONG span_trunc = 0;
+    ULONG last_index = 0;
 
     *Written = 0;
     *Required = 0;
     *Considered = 0;
+    if (Holes)         *Holes = 0;
+    if (SpanTruncated) *SpanTruncated = 0;
+    if (LastIndex)     *LastIndex = 0;
+    if (NextCursor)    *NextCursor = 0;
 
     if (max_out == 0 || max_out > Capacity) {
         max_out = Capacity;
@@ -176,12 +187,13 @@ NTSTATUS SuspxPoolScan(_In_ const SUSPEX_POOL_SCAN_IN* In,
     }
     saw = info->Count;
 
-    for (i = 0; i < info->Count && wrote < max_out; i++) {
+    for (i = In->Cursor; i < info->Count && wrote < max_out; i++) {
         SUSPEX_SBP_ENTRY* e = &info->AllocatedInfo[i];
         ULONG_PTR va_raw = (ULONG_PTR)e->VirtualAddress;
         BOOLEAN nonpaged = (va_raw & 1) != 0;
         UINT64 va = (UINT64)(va_raw & ~(ULONG_PTR)1);
         SIZE_T size = e->SizeInBytes;
+        last_index = i;
 
         if (want_nonpaged && !nonpaged) {
             continue;
@@ -206,11 +218,18 @@ NTSTATUS SuspxPoolScan(_In_ const SUSPEX_POOL_SCAN_IN* In,
             wanted = span;
             if (wanted > size - offset) {
                 wanted = size - offset;
+                // v0.31 Phase 3.2: track span clipping so the caller can
+                // see "scanned to end of entry" vs "stopped at span cap".
+                span_trunc++;
             }
             win_va = va + offset;
             rd = SuspxReadKernelWindow(win_va, scratch, wanted, &got);
             if (!NT_SUCCESS(rd) || got == 0) {
-                continue; // hole: silently skip (not evidence of no-match)
+                // v0.31 Phase 3.2: count holes instead of silently
+                // dropping — the caller can now tell "no match in N
+                // entries" from "N entries unreadable".
+                holes++;
+                continue;
             }
             if (!SuspxPatternHit((const UCHAR*)scratch, got, In->Pattern,
                                  In->Mask, pattern_len, &hit_off)) {
@@ -234,5 +253,17 @@ NTSTATUS SuspxPoolScan(_In_ const SUSPEX_POOL_SCAN_IN* In,
     *Written = wrote;
     *Required = saw;
     *Considered = considered;
+    if (Holes)         *Holes = holes;
+    if (SpanTruncated) *SpanTruncated = span_trunc;
+    if (LastIndex)     *LastIndex = last_index;
+    if (NextCursor) {
+        // Report the next unseen index when we stopped early, 0 when the
+        // scan ran out the table naturally.
+        if (wrote >= max_out && (last_index + 1) < saw) {
+            *NextCursor = last_index + 1;
+        } else {
+            *NextCursor = 0;
+        }
+    }
     return STATUS_SUCCESS;
 }

@@ -132,6 +132,10 @@ bool Driver::ObjEnum(const std::wstring& path, UINT32 depth, UINT32 maxEntries,
         o.Name = e[i].Name;
         o.Type = e[i].TypeName;
         o.IsDirectory = e[i].IsDirectory;
+        // v0.31 Phase 3.1: body VA from the ObReferenceObjectByName walk.
+        o.Address = e[i].Address;
+        o.TypeIndex = e[i].TypeIndex;
+        o.Source = (e[i].Source == 1) ? "walk" : "zwquery";
         out.push_back(std::move(o));
     }
     if (required)  *required  = hdr->Required;

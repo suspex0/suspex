@@ -43,6 +43,27 @@ AgentConfig AgentConfig::FromArgs(int argc, char** argv)
         } else if (a == "--no-driver-ops") {
             c.allowDriverLoad = false;
             c.allowDriverUnload = false;
+        } else if (a == "--dev") {
+            c.devConsole = true;
+        } else if (a == "--log") {
+            c.logPath = WideArg(next().c_str());
+        } else if (a == "--log-max-mb") {
+            size_t mb = (size_t)atoi(next().c_str());
+            if (mb) c.logMaxBytes = mb * 1024 * 1024;
+        } else if (a == "--pin-adapter") {
+            c.pinAdapter = WideArg(next().c_str());
+        } else if (a == "--pin-address") {
+            c.pinAddress = WideArg(next().c_str());
+        } else if (a == "--pin-prefix") {
+            c.pinPrefix = (uint32_t)atoi(next().c_str());
+        } else if (a == "--pin-gateway") {
+            c.pinGateway = WideArg(next().c_str());
+        } else if (a == "--pin-debounce-ms") {
+            c.pinDebounceMs = (uint32_t)atoi(next().c_str());
+        } else if (a == "--pin-at-boot-only") {
+            c.pinAtBootOnly = true;
+        } else if (a == "--pin-hold-marker") {
+            c.pinHoldMarker = WideArg(next().c_str());
         }
     }
     if (c.driverPath.empty()) {

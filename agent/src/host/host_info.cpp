@@ -17,6 +17,15 @@
 
 #include "suspex_abi.h"
 
+// v0.31 Phase 2.1: GetAdaptersAddresses for AdapterRow collection.
+// winsock2.h MUST come before windows.h so the modern socket API is
+// defined before the Win32 header's conditional winsock1 pull-in; the
+// IP_ADAPTER_ADDRESSES / GAA_FLAG_* symbols need iphlpapi.h which pulls
+// in winsock2's structs.
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <iphlpapi.h>
+
 #include <windows.h>
 #include <lmcons.h>
 #include <sddl.h>
@@ -32,6 +41,8 @@
 
 #pragma comment(lib, "wtsapi32.lib")
 #pragma comment(lib, "advapi32.lib")
+#pragma comment(lib, "iphlpapi.lib")
+#pragma comment(lib, "ws2_32.lib")
 
 namespace suspex::host {
 
@@ -716,6 +727,87 @@ void ProbeSecurityProducts(HostInfo& out)
 
 } // namespace
 
+// v0.31 Phase 2.1: enumerate IPv4 unicast addresses via GetAdaptersAddresses.
+// One row per address; adapter down + loopback are skipped. mac is
+// formatted colon-separated lowercase hex. Lives outside the anonymous
+// namespace so the Status gRPC handler can share it (header-exposed).
+void ProbeAdapters(HostInfo& out)
+{
+    ULONG size = 15 * 1024;
+    std::vector<unsigned char> buf(size);
+    ULONG flags = GAA_FLAG_INCLUDE_PREFIX | GAA_FLAG_INCLUDE_GATEWAYS |
+                  GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST |
+                  GAA_FLAG_SKIP_DNS_SERVER;
+    DWORD rc = GetAdaptersAddresses(AF_INET, flags, nullptr,
+                                    (IP_ADAPTER_ADDRESSES*)buf.data(), &size);
+    if (rc == ERROR_BUFFER_OVERFLOW) {
+        buf.resize(size);
+        rc = GetAdaptersAddresses(AF_INET, flags, nullptr,
+                                  (IP_ADAPTER_ADDRESSES*)buf.data(), &size);
+    }
+    if (rc != NO_ERROR) {
+        out.probe_errors.push_back("ipv4: GetAdaptersAddresses failed gle=" +
+                                   std::to_string(rc));
+        return;
+    }
+    for (auto* ad = (IP_ADAPTER_ADDRESSES*)buf.data(); ad != nullptr;
+         ad = ad->Next) {
+        if (ad->IfType == IF_TYPE_SOFTWARE_LOOPBACK) {
+            continue;
+        }
+        bool up = ad->OperStatus == IfOperStatusUp;
+        std::string friendly = WideToUtf8(ad->FriendlyName);
+        // Format MAC.
+        char mac_buf[32] = {};
+        if (ad->PhysicalAddressLength == 6) {
+            std::snprintf(mac_buf, sizeof(mac_buf),
+                          "%02x:%02x:%02x:%02x:%02x:%02x",
+                          ad->PhysicalAddress[0], ad->PhysicalAddress[1],
+                          ad->PhysicalAddress[2], ad->PhysicalAddress[3],
+                          ad->PhysicalAddress[4], ad->PhysicalAddress[5]);
+        }
+        // First default gateway on this adapter (IPv4 only).
+        std::string gw;
+        for (auto* g = ad->FirstGatewayAddress; g != nullptr; g = g->Next) {
+            if (g->Address.lpSockaddr != nullptr &&
+                g->Address.lpSockaddr->sa_family == AF_INET) {
+                char ip[INET_ADDRSTRLEN] = {};
+                inet_ntop(AF_INET,
+                          &((sockaddr_in*)g->Address.lpSockaddr)->sin_addr,
+                          ip, sizeof(ip));
+                gw = ip;
+                break;
+            }
+        }
+        for (auto* u = ad->FirstUnicastAddress; u != nullptr; u = u->Next) {
+            if (u->Address.lpSockaddr == nullptr ||
+                u->Address.lpSockaddr->sa_family != AF_INET) {
+                continue;
+            }
+            char ip[INET_ADDRSTRLEN] = {};
+            inet_ntop(AF_INET,
+                      &((sockaddr_in*)u->Address.lpSockaddr)->sin_addr,
+                      ip, sizeof(ip));
+            HostInfo::AdapterRow row;
+            row.adapter = friendly;
+            row.address = ip;
+            row.prefix_len = u->OnLinkPrefixLength;
+            // IP_SUFFIX_ORIGIN_DHCP / IP_SUFFIX_ORIGIN_MANUAL / ...
+            switch (u->SuffixOrigin) {
+            case IpSuffixOriginDhcp: row.origin = "dhcp"; break;
+            case IpSuffixOriginManual: row.origin = "static"; break;
+            case IpSuffixOriginLinkLayerAddress: row.origin = "linklayer"; break;
+            case IpSuffixOriginRandom: row.origin = "random"; break;
+            default: row.origin = "unknown"; break;
+            }
+            row.gateway = gw;
+            row.mac = mac_buf;
+            row.up = up;
+            out.ipv4.push_back(std::move(row));
+        }
+    }
+}
+
 void Collect(bool include_security_products, bool include_hardware,
              uint32_t driver_flags, bool driver_ok,
              uint64_t agent_uptime_ms, HostInfo& out)
@@ -758,6 +850,10 @@ void Collect(bool include_security_products, bool include_hardware,
     if (include_security_products) {
         ProbeSecurityProducts(out);
     }
+    // v0.31 Phase 2.1: cheap and always-on. The adapter list is small
+    // (handful of rows) and the orchestrator's self-heal / rediscover
+    // paths rely on it. Failures land in probe_errors instead.
+    ProbeAdapters(out);
 }
 
 } // namespace suspex::host

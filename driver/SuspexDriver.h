@@ -211,7 +211,11 @@ NTSTATUS SuspxPhysRangesEnumerate(_Out_writes_to_(Capacity, *Written) SUSPEX_PHY
 NTSTATUS SuspxPoolScan(_In_ const SUSPEX_POOL_SCAN_IN* In,
                        _Out_writes_to_(Capacity, *Written) SUSPEX_POOL_ENTRY* Out,
                        _In_ ULONG Capacity, _Out_ PULONG Written, _Out_ PULONG Required,
-                       _Out_ PULONG Considered);
+                       _Out_ PULONG Considered,
+                       _Out_opt_ PULONG Holes,
+                       _Out_opt_ PULONG SpanTruncated,
+                       _Out_opt_ PULONG LastIndex,
+                       _Out_opt_ PULONG NextCursor);
 
 // Context.c
 NTSTATUS SuspxCtxGet(_In_ UINT64 Tid, _In_ ULONG Flags, _Out_ PVOID Context);

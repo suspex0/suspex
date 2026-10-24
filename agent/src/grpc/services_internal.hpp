@@ -16,10 +16,13 @@
 
 #include "../config.hpp"
 #include "../driver_mgr.hpp"
+#include "../host/net_pin.hpp"
 
 namespace suspex {
 
 void RegisterAgentSvc(grpc::ServerBuilder& builder, const AgentConfig& cfg, DriverMgr& drv);
+void RegisterNetPinSvc(grpc::ServerBuilder& builder, const AgentConfig& cfg,
+                       host::NetPinMgr& netPin);
 void RegisterMemorySvc(grpc::ServerBuilder& builder, const AgentConfig& cfg, DriverMgr& drv);
 void RegisterDebugSvc(grpc::ServerBuilder& builder, const AgentConfig& cfg, DriverMgr& drv);
 void RegisterBpSvc(grpc::ServerBuilder& builder, const AgentConfig& cfg, DriverMgr& drv);

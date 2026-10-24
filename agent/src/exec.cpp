@@ -135,10 +135,32 @@ RunResult ExecMgr::RunShell(bool powershell, const std::string& command,
     }
     std::wstring full;
     if (powershell) {
-        full = L"powershell.exe -NoProfile -NonInteractive -Command " + Quote(cmd);
+        // v0.31 Phase 2.3: force UTF-8 output encoding before the user's
+        // command so stdout survives the Windows codepage ride without
+        // becoming `â†’` noise. Separator is `;` so the user's command
+        // text is appended verbatim.
+        std::wstring body = L"[Console]::OutputEncoding=[Text.Encoding]::UTF8; " + cmd;
+        full = L"powershell.exe -NoProfile -NonInteractive -Command " + Quote(body);
     } else {
         full = L"cmd.exe /c " + Quote(cmd);
     }
+    return RunProcess(full, workDir, timeoutMs, cancelled);
+}
+
+// v0.31 Phase 2.3: PowerShell -EncodedCommand path.
+RunResult ExecMgr::RunShellEncoded(const std::string& encoded_b64,
+                                   const std::wstring& workDir,
+                                   DWORD timeoutMs,
+                                   const CancelledFn& cancelled)
+{
+    // base64 is pure ASCII, so a plain narrow→wide copy is enough.
+    std::wstring w;
+    w.reserve(encoded_b64.size());
+    for (char c : encoded_b64) {
+        w.push_back(static_cast<wchar_t>(static_cast<unsigned char>(c)));
+    }
+    std::wstring full = L"powershell.exe -NoProfile -NonInteractive "
+                        L"-OutputFormat Text -EncodedCommand " + w;
     return RunProcess(full, workDir, timeoutMs, cancelled);
 }
 

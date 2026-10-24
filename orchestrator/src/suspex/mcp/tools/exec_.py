@@ -132,9 +132,36 @@ def _deadline_err(action: str, timeout_s: float, hint: str) -> str:
 _DETACHED_DEADLINE_HINT = ("spawn may have succeeded — check detached "
                            "handles / detached_status / detached_tail "
                            "before retrying")
-_RUN_DEADLINE_HINT = ("switch to exec_manage(action='run_detached') for "
-                      "long-running / potentially-hanging commands; poll "
-                      "with detached_status / detached_tail")
+_RUN_DEADLINE_HINT = ("sync run_* enforces timeout_ms on the agent (child "
+                      "process gets killed on expiry) AND an outer "
+                      "timeout_s on the orchestrator — raising timeout_s "
+                      "alone no longer stretches the child window: pass "
+                      "timeout_ms = min(timeout_s*1000, mcp_budget) too, "
+                      "or switch to exec_manage(action='run_detached') "
+                      "for anything that can hang (poll detached_status "
+                      "/ detached_tail)")
+
+
+# v0.31 Phase 1.3: when the caller raised timeout_s above the default 30s
+# but left timeout_ms at its default 30000, derive a matching timeout_ms
+# so the agent-side process deadline keeps up with the orchestrator-side
+# await deadline. Capped at the MCP response-budget ceiling to leave room
+# for round-trip encode/transfer.
+_EXEC_TIMEOUT_MS_DEFAULT = 30000
+_EXEC_TIMEOUT_MS_CEILING_MS = 115_000  # MCP host hard deadline is ~120s
+
+
+def _effective_timeout_ms(timeout_ms: int, timeout_s: float) -> int:
+    """Phase 1.3: reconcile the agent-side child deadline with the outer
+    orchestrator await deadline. When ``timeout_ms`` is still the default
+    30000 but ``timeout_s`` was raised, grow ``timeout_ms`` to match
+    (capped at the host budget). Explicit non-default ``timeout_ms``
+    always wins."""
+    if timeout_ms != _EXEC_TIMEOUT_MS_DEFAULT:
+        return int(timeout_ms)
+    if timeout_s <= 0 or timeout_s * 1000 <= _EXEC_TIMEOUT_MS_DEFAULT:
+        return int(timeout_ms)
+    return int(min(timeout_s * 1000, _EXEC_TIMEOUT_MS_CEILING_MS))
 
 
 # v0.22: module-level so the lazy action-enum annotation resolves.
@@ -466,9 +493,14 @@ def register(mcp, ctx: Context) -> None:
                                "detached_kill")
                 return _j(out)
             if action == "run_exe":
+                # v0.31 Phase 1.3: honor timeout_s when timeout_ms is at
+                # its default — a caller that raised timeout_s but left
+                # timeout_ms alone used to see the orchestrator wait N
+                # seconds while the agent killed the child at 30s.
+                _eff_ms = _effective_timeout_ms(timeout_ms, timeout_s)
                 try:
                     r = await _exec_deadline(
-                        c.run_exe(exe, args_list, workdir, timeout_ms),
+                        c.run_exe(exe, args_list, workdir, _eff_ms),
                         timeout_s)
                 except asyncio.TimeoutError:
                     return _deadline_err(action, timeout_s,
@@ -536,7 +568,10 @@ def register(mcp, ctx: Context) -> None:
                             c.run_detached(cmdline, workdir=workdir),
                             timeout_s)
                     else:
-                        result = await c.run_exe(shell_exe, spawn_args, workdir, timeout_ms)
+                        _eff_ms = _effective_timeout_ms(timeout_ms, timeout_s)
+                        result = await _exec_deadline(
+                            c.run_exe(shell_exe, spawn_args, workdir, _eff_ms),
+                            timeout_s)
                 except Exception as exc:
                     try: await c.file_delete(remote_full, no_trash=True)
                     except Exception: pass
@@ -558,17 +593,48 @@ def register(mcp, ctx: Context) -> None:
             if action == "run_powershell":
                 # script_b64 was decoded into the run_script path above —
                 # what remains here is a plain command line.
+                # v0.31 Phase 1.8: auto-route long / multi-line /
+                # non-ASCII `command=` through the run_script upload
+                # path. `powershell -Command <quoted>` collapses on
+                # embedded quotes, backticks, newlines, or non-ASCII
+                # (codepage mangling); a file on disk sidesteps every
+                # one of those. The threshold is intentionally
+                # conservative — a one-liner stays on the fast path.
+                def _needs_upload(cmd: str) -> bool:
+                    if not cmd:
+                        return False
+                    if len(cmd) > 1024:
+                        return True
+                    if "\n" in cmd or "\r" in cmd:
+                        return True
+                    try:
+                        cmd.encode("ascii")
+                    except UnicodeEncodeError:
+                        return True
+                    return False
+                if _needs_upload(command):
+                    # Fall through to the run_script upload path with
+                    # the PowerShell body as the script. action rewrite
+                    # is the shortest route — keeps the rest of the
+                    # run_script branch unchanged.
+                    action = "run_script"
+                    script = command
+                    shell = shell or "powershell"
+                    # Reuse the fast path's recursion by re-entering run().
+                    return await run()
+                _eff_ms = _effective_timeout_ms(timeout_ms, timeout_s)
                 try:
                     return _j(await _exec_deadline(
                         c.run_shell(command, "powershell", workdir,
-                                    timeout_ms), timeout_s))
+                                    _eff_ms), timeout_s))
                 except asyncio.TimeoutError:
                     return _deadline_err(action, timeout_s,
                                          _RUN_DEADLINE_HINT)
             if action == "run_cmd":
+                _eff_ms = _effective_timeout_ms(timeout_ms, timeout_s)
                 try:
                     return _j(await _exec_deadline(
-                        c.run_shell(command, "cmd", workdir, timeout_ms),
+                        c.run_shell(command, "cmd", workdir, _eff_ms),
                         timeout_s))
                 except asyncio.TimeoutError:
                     return _deadline_err(action, timeout_s,

@@ -268,23 +268,38 @@ class MemMixin:
     async def pool_scan(self, tag_filter: int = 0, nonpaged_only: bool = False,
                         paged_only: bool = False, max_results: int = 256,
                         pattern: bytes = b"", mask: bytes = b"",
-                        offset: int = 0, content_span: int = 0) -> dict[str, Any]:
+                        offset: int = 0, content_span: int = 0,
+                        cursor: int = 0) -> dict[str, Any]:
         """Kernel big-pool walk with optional tag/paged/content filters.
 
-        `pattern` (<=16 bytes) + `content_span` (<=4096) drives an
-        MmCopyMemory-backed content check on each surviving entry; a
-        wildcard mask byte is 0 or '?' (0x3F).
+        `pattern` (<=64 bytes, v0.31+ driver) + `content_span` (<=64 KiB,
+        v0.31+ driver) drives an MmCopyMemory-backed content check on
+        each surviving entry; a wildcard mask byte is 0 or '?' (0x3F).
+
+        v0.31 Phase 3.2: `cursor` resumes a prior scan from
+        ``next_cursor``; the response carries `holes`, `span_truncated`,
+        `last_index`, and `next_cursor` (0 when the scan completed).
         """
-        req = pb.PoolScanRequest(
-            tag_filter=tag_filter, nonpaged_only=nonpaged_only,
-            paged_only=paged_only, max_results=max_results,
-            pattern=pattern, mask=mask, offset=offset, content_span=content_span,
-        )
+        req_kwargs = {
+            "tag_filter": tag_filter, "nonpaged_only": nonpaged_only,
+            "paged_only": paged_only, "max_results": max_results,
+            "pattern": pattern, "mask": mask,
+            "offset": offset, "content_span": content_span,
+        }
+        probe = pb.PoolScanRequest()
+        if hasattr(probe, "cursor"):
+            req_kwargs["cursor"] = int(cursor)
+        req = pb.PoolScanRequest(**req_kwargs)
         msg = await self._call(self.memory.PoolScan, req)
         if not msg.status.ok:
             raise RuntimeError(msg.status.error)
         return {
             "required": msg.required, "considered": msg.considered,
+            # v0.31 Phase 3.2 fields; 0 on pre-v0.31 agents.
+            "holes": int(getattr(msg, "holes", 0) or 0),
+            "span_truncated": int(getattr(msg, "span_truncated", 0) or 0),
+            "last_index": int(getattr(msg, "last_index", 0) or 0),
+            "next_cursor": int(getattr(msg, "next_cursor", 0) or 0),
             "entries": [{
                 "va": e.virtual_address, "size": e.size_in_bytes,
                 "tag": e.tag, "tag_ascii": e.tag_ascii,

@@ -37,6 +37,10 @@ DEFAULT_ALIAS = "default"
 
 _METADATA_FIELDS = ("trust", "purpose", "note", "operator", "tags")
 
+# v0.31 Phase 1.2: observed-endpoint cap per machine (newest first). Keeps
+# the registry file small when a box flaps endpoints across sessions.
+_OBSERVED_ENDPOINT_CAP = 8
+
 
 def _norm_trust(value: str) -> str:
     v = str(value or "").strip().lower()
@@ -153,9 +157,16 @@ class MachineRegistry:
 
     @staticmethod
     def _apply_metadata(mcfg: MachineConfig, ent: dict[str, Any]) -> None:
+        # Presence-based, not truthiness: an explicit "" / [] in the entry
+        # CLEARS the field (the dashboard edit form sends present-but-empty
+        # to blank out a note); absent keys leave the config value alone.
         for f in _METADATA_FIELDS:
-            if ent.get(f) not in (None, "", []):
-                setattr(mcfg, f, ent[f])
+            if f in ent:
+                val = ent[f]
+                if val not in (None, "", []):
+                    setattr(mcfg, f, ent[f])
+                else:
+                    setattr(mcfg, f, [] if f == "tags" else "")
 
     @staticmethod
     def _apply_endpoints(mcfg: MachineConfig, ent: dict[str, Any]) -> None:
@@ -292,6 +303,54 @@ class MachineRegistry:
         self._save()
         return True
 
+    # ----------------------------------------------- observed endpoints ----
+
+    def record_observed_endpoint(self, alias: str, *, host: str, port: int,
+                                 boot_epoch_ms: int = 0) -> None:
+        """v0.31 Phase 1.2: note that *host:port* answered a gRPC connect
+        for the machine *alias*. The newest observation shows first; the
+        list is capped at :data:`_OBSERVED_ENDPOINT_CAP` entries. YAML
+        aliases participate too (no shadow needed) — this is pure learned
+        metadata, never a replacement for reviewed endpoints.
+        """
+        if not alias or not host or not port:
+            return
+        alias = str(alias).strip()
+        lower = alias.lower()
+        if not lower:
+            return
+        ent = dict(self._entries.get(lower) or {"alias": alias})
+        existing = list(ent.get("observed_endpoints") or [])
+        tag = f"{host}:{int(port)}"
+        # Drop any earlier observation of the same endpoint before pushing
+        # the fresh one on top (newest-first); de-dup on host:port.
+        existing = [o for o in existing
+                    if isinstance(o, dict)
+                    and f"{o.get('host')}:{int(o.get('port') or 0)}" != tag]
+        new_entry: dict[str, Any] = {
+            "host": str(host),
+            "port": int(port),
+            "seen_at": _now(),
+        }
+        if boot_epoch_ms:
+            new_entry["boot_epoch_ms"] = int(boot_epoch_ms)
+        existing.insert(0, new_entry)
+        del existing[_OBSERVED_ENDPOINT_CAP:]
+        ent["observed_endpoints"] = existing
+        ent.setdefault("alias", alias)
+        self._entries[lower] = ent
+        try:
+            self._save()
+        except Exception:  # noqa: BLE001 — never mask the connect that recorded it
+            pass
+
+    def observed_endpoints(self, alias: str) -> list[dict[str, Any]]:
+        """Observed endpoints for *alias*, newest-first. Empty list when
+        nothing has been recorded."""
+        ent = self._entries.get(str(alias or "").strip().lower()) or {}
+        rows = ent.get("observed_endpoints") or []
+        return [dict(r) for r in rows if isinstance(r, dict)]
+
     # ------------------------------------------------------------ reading ----
 
     def entry(self, alias: str) -> dict[str, Any] | None:
@@ -384,4 +443,8 @@ class MachineRegistry:
         }
         if ent.get("registered_at"):
             info["registered_at"] = str(ent["registered_at"])
+        obs = ent.get("observed_endpoints") or []
+        if obs:
+            info["observed_endpoints"] = [dict(o) for o in obs
+                                          if isinstance(o, dict)]
         return info

@@ -137,6 +137,14 @@ class HostMixin:
                 for p in msg.security_products
             ],
             "probe_errors": list(msg.probe_errors),
+            # v0.31 Phase 2.1: adapter list for registry self-heal /
+            # rediscover. Empty on agents that predate the field.
+            "ipv4": [
+                {"adapter": a.adapter, "address": a.address,
+                 "prefix_len": a.prefix_len, "origin": a.origin,
+                 "gateway": a.gateway, "mac": a.mac, "up": a.up}
+                for a in (getattr(msg, "ipv4", None) or [])
+            ],
         }
 
     async def recent_ops_agent(self, limit: int = 32,

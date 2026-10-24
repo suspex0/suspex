@@ -89,6 +89,24 @@ class Context:
         if self._registry is None:
             from ...registry import MachineRegistry
             self._registry = MachineRegistry.load(self.cfg)
+            # v0.31 Phase 1.2: feed observed endpoints back into Session's
+            # connect-candidate list so a boxed-up endpoint flap self-heals
+            # (DHCP changed the IP; the registry remembered the IP the box
+            # actually answered on, and connect probes that first).
+            try:
+                reg = self._registry
+                # NOTE: hosts only — Session.connect pairs each entry with
+                # the view's port itself. Earlier revisions emitted
+                # "host:port" strings here, which connect() then probed as
+                # literal hostnames: every observed endpoint was dead on
+                # arrival and the DHCP self-heal never fired.
+                self.session.set_observed_endpoint_source(
+                    lambda label: [
+                        str(o.get("host"))
+                        for o in reg.observed_endpoints(label)
+                        if o.get("host")])
+            except Exception:  # noqa: BLE001 — hook install is best-effort
+                pass
         return self._registry
 
     def get_current_session_id(self, client_id: str) -> str:

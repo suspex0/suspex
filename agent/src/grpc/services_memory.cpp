@@ -1134,6 +1134,8 @@ public:
         opts.MaxResults = req->max_results();
         opts.Offset = req->offset();
         opts.ContentSpan = req->content_span();
+        // v0.31 Phase 3.2: resume cursor from a previous scan.
+        opts.Cursor = req->cursor();
         if (req->nonpaged_only()) {
             opts.Flags |= SUSPEX_POOL_FLAG_NONPAGED_ONLY;
         }
@@ -1144,7 +1146,7 @@ public:
         const std::string& msk = req->mask();
         if (!pat.empty()) {
             if (pat.size() > SUSPEX_POOL_PATTERN_MAX) {
-                FillStatus(resp, "pattern too long (>16 bytes)");
+                FillStatus(resp, "pattern too long (>64 bytes)");
                 return grpc::Status::OK;
             }
             if (!msk.empty() && msk.size() != pat.size()) {
@@ -1160,8 +1162,10 @@ public:
         }
         std::vector<suspex::PoolBlockInfo> entries;
         UINT32 required = 0, considered = 0;
+        suspex::PoolScanTelemetry telem;
         if (!drv_.Comm().Open()
-            || !drv_.Comm().PoolScan(opts, entries, &required, &considered)) {
+            || !drv_.Comm().PoolScan(opts, entries, &required, &considered,
+                                      &telem)) {
             FillStatus(resp, "driver: " + drv_.Comm().LastError());
             return grpc::Status::OK;
         }
@@ -1186,6 +1190,11 @@ public:
         }
         resp->set_required(required);
         resp->set_considered(considered);
+        // v0.31 Phase 3.2: telemetry.
+        resp->set_holes(telem.Holes);
+        resp->set_span_truncated(telem.SpanTruncated);
+        resp->set_last_index(telem.LastIndex);
+        resp->set_next_cursor(telem.NextCursor);
         FillStatus(resp, "");
         return grpc::Status::OK;
     }
@@ -1411,6 +1420,10 @@ public:
             auto* row = resp->add_entries();
             row->set_name(WideToUtf8(e.Name));
             row->set_type(WideToUtf8(e.Type));
+            // v0.31 Phase 3.1: object body VA + type index + walk source.
+            row->set_address(e.Address);
+            row->set_type_index(e.TypeIndex);
+            row->set_source(e.Source);
         }
         resp->set_count((UINT32)entries.size());
         resp->set_truncated(truncated != 0);

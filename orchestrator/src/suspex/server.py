@@ -27,7 +27,7 @@ from .session import Session
 
 # Bumped by hand on any behavior-visible tool-surface change so clients
 # know a re-connect (and tool-schema refresh) may be required.
-SERVER_VERSION = "1.0.0-2026-10-22"  # v1.0: first public release (feature surface as of v0.29)
+SERVER_VERSION = "0.31.0-2026-10-23"  # v0.31: field-feedback hardening (orch+agent+driver)
 # v0.28: ghidra_manage — second analysis engine (orchestrator only; off by default).
 # v0.25: engagement round — dump_manage(parse|latest) + crash_state minidump auto-parse + wait_boot_change + boot monitor; mem_rw resolve_range/dps + dt + idt; file_manage read + recursive download + snapshot pump + watchdog.auto_arm + exec background=true/timeout_s; ABI v12 write_path/STRICT_VA + cr3 va_translate+write + IdtList; kdnet docs; tool-schema slimming (~2x catalog reduction). Driver+agent rebuild (ABI v12).
 # v0.24: engagement-feedback round — symbols resolve/lookup hex-mirrored RVAs; read_pdb_info parses VA-layout dump_module output (+ ensure pdb_guid=/pdb_age= override); open_status carries open_elapsed_s + stale-apply warning; ida_manage open/open_async accept artifacts-relative paths; driver_unload cross-checks ref-holders against the ClientRegistry (umagent-only peers no longer block; stale refs pruned; list_peers gains session_view_refs); list_artifacts covers spill/+dumps/+ingested/ with cached sha256; knowledge_manage about accepts path=; shim validation errors append expected arg names; struct_info/resolve_member/enum_info accept empty/partial build_id; agent dumper emits per-section residency map (DumpHeader.sections, proto v13). Orchestrator + agent rebuild; no driver change.

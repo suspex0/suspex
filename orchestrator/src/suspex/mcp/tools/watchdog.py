@@ -104,7 +104,8 @@ def register(mcp, ctx: Context) -> None:
                               cookie: int = 0,
                               label: str = "",
                               replace: bool = False,
-                              name: str = "") -> str:
+                              name: str = "",
+                              unsafe_without_kicker: bool = False) -> str:
         """Wedge → bugcheck watchdog: the driver KeBugCheckEx()'s the
         target (0xE2) when an armed deadline passes without a kick — a
         silent wedge becomes an analyzable dump. auto_kick arms + kicks
@@ -116,7 +117,9 @@ def register(mcp, ctx: Context) -> None:
         args = {"action": action, "id": id, "deadline_ms": deadline_ms}
 
         async def run() -> str:
-            nonlocal name
+            # v0.31 Phase 1.4: `id` may be rebound inside the arm branch
+            # when the caller passes 0 and we auto-allocate a free slot.
+            nonlocal name, id
             if action not in WDG_ACTIONS:
                 return _unknown_action("watchdog_manage", action, WDG_ACTIONS, _WDG_ACTION_HELP)
             if action == "actions":
@@ -127,10 +130,38 @@ def register(mcp, ctx: Context) -> None:
             name = ctx.session.resolve_view_name(name)
             c = ctx.session.require_client(name)
             if action == "arm":
-                if not id:
-                    return _j({"ok": False, "error": "watchdog arm: id != 0 required",
-                               "hint": "pick a small integer, e.g. id=1"})
                 cid = current_client_id()
+                # v0.31 Phase 1.4: id=0 now auto-allocates the first free
+                # slot instead of hard-erroring. We keep the chosen value
+                # in a local to avoid reassigning the `id` closure (which
+                # would make `id` a local of run() everywhere).
+                nonlocal_id = id
+                if not nonlocal_id:
+                    try:
+                        existing = await c.watchdog_list()
+                    except Exception as exc:  # noqa: BLE001
+                        return _j({"ok": False, "kind": "watchdog_list_failed",
+                                   "error": f"watchdog arm: id auto-allocate "
+                                            f"needed watchdog_list and it "
+                                            f"failed: {exc}",
+                                   "hint": "pass id=<small int> explicitly"})
+                    rows = existing.get("entries", []) \
+                        if isinstance(existing, dict) else (existing or [])
+                    used = {int(r.get("id") or 0) for r in rows}
+                    for cand in range(1, 65):
+                        if cand not in used:
+                            nonlocal_id = cand
+                            break
+                    else:
+                        return _j({"ok": False, "kind": "watchdog_full",
+                                   "error": "watchdog arm: no free id in "
+                                            "1..64 (all slots armed)",
+                                   "hint": "disarm an unused id first"})
+                # Shadow `id` with the resolved value for the rest of this
+                # branch. Since every subsequent reference reads `id`, and
+                # we assigned to it above only when it was 0, this
+                # rebinding is safe inside the `arm` branch only.
+                id = nonlocal_id
                 cat = f"watchdog:{name}"
                 key = str(id)
                 # v0.17 E-1c: ownership guard. A peer that armed id=N owns
@@ -194,27 +225,40 @@ def register(mcp, ctx: Context) -> None:
                 if (ctx.ownership is not None
                         and isinstance(result, dict) and result.get("ok")):
                     await ctx.ownership.claim(cat, key, cid)
-                # v0.17 E-1c: bare-arm deprecation warning. If nothing
-                # is kicking this id the deadline WILL fire — surface a
-                # warning nudging the caller toward auto_kick.
+                # v0.31 Phase 1.4: bare arm without a kicker now REFUSES
+                # by default (breaking change from v0.17's warning-only
+                # path). An armed deadline with nothing kicking it
+                # eventually bugchecks the target; a scripted workflow
+                # that genuinely wants the fire-and-forget behavior
+                # passes unsafe_without_kicker=true. This runs AFTER the
+                # arm succeeds, so the slot is held — disarm it before
+                # returning the refusal so the caller isn't surprised by
+                # a lingering watchdog they didn't commit to.
                 if (isinstance(result, dict) and result.get("ok")
-                        and _auto_key(name, id) not in ctx._auto_kicks):
-                    from .._envelope import warn as _envelope_warn
-                    data = {k: v for k, v in result.items() if k != "ok"}
-                    env = _envelope_ok(
-                        data,
-                        kind=_resolve_kind("watchdog_manage", "arm"),
-                        tool="watchdog_manage",
-                        action="arm",
-                    )
-                    _envelope_warn(env,
-                        f"watchdog id={id} armed without a kicker — the "
-                        f"deadline WILL fire (bugcheck the target) if "
-                        f"nothing kicks within deadline_ms={deadline_ms}. "
-                        f"Prefer watchdog_manage(action='auto_kick', "
-                        f"id={id}, deadline_ms={deadline_ms}, "
-                        "interval_ms=...) for hands-off protection.")
-                    return _j(env)
+                        and _auto_key(name, id) not in ctx._auto_kicks
+                        and not unsafe_without_kicker):
+                    try:
+                        await c.watchdog_disarm(id)
+                    except Exception:  # noqa: BLE001 — best-effort cleanup
+                        pass
+                    if ctx.ownership is not None:
+                        await ctx.ownership.release(
+                            f"watchdog:{name}", str(id))
+                    return _j({
+                        "ok": False,
+                        "kind": "watchdog_no_kicker",
+                        "id": id,
+                        "error": (f"watchdog id={id} without a kicker was "
+                                  "refused — the deadline would fire "
+                                  "(bugcheck the target) if nothing kicks "
+                                  f"within deadline_ms={deadline_ms}"),
+                        "hint": (f"use watchdog_manage(action='auto_kick', "
+                                 f"id={id}, deadline_ms={deadline_ms}, "
+                                 "interval_ms=...) for hands-off "
+                                 "protection, or pass "
+                                 "unsafe_without_kicker=true to arm "
+                                 "unprotected (fire-and-forget)"),
+                    })
                 return _j(result)
             if action == "kick":
                 if not id:

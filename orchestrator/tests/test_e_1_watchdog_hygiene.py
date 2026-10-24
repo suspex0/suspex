@@ -313,7 +313,11 @@ def test_e_1c_foreign_arm_refused(tmp_path):
         # A different peer owns id=5.
         await ctx.ownership.claim("watchdog:kernel", "5", "peer-X")
         env = await _call(server, "watchdog_manage",
-                          {"action": "arm", "id": 5, "name": "kernel"})
+                          {"action": "arm", "id": 5, "name": "kernel",
+                           # v0.31 Phase 1.4: pass unsafe_without_kicker
+                           # so the refusal path we're testing is foreign-
+                           # owned, not the new no-kicker refusal.
+                           "unsafe_without_kicker": True})
         flat = _flatten(env)
         assert flat["ok"] is False
         assert flat["kind"] == "foreign_owned"
@@ -328,7 +332,10 @@ def test_e_1c_replace_true_bypasses_foreign_owned(tmp_path):
         await ctx.ownership.claim("watchdog:kernel", "5", "peer-X")
         env = await _call(server, "watchdog_manage",
                           {"action": "arm", "id": 5, "name": "kernel",
-                           "replace": True})
+                           "replace": True,
+                           # v0.31 Phase 1.4: unprotected arm needs the
+                           # explicit opt-in (no kicker in this test).
+                           "unsafe_without_kicker": True})
         # Success — replace=True is the "yes I'm stealing" acknowledgement.
         assert env.get("ok") is True
 
@@ -341,7 +348,8 @@ def test_e_1c_bare_rearm_warns_watchdog_collision(tmp_path):
         # Pretend id=3 is already armed on the driver without an ownership tag.
         fake.armed_ids[3] = {"id": 3, "deadline_ms": 1000}
         env = await _call(server, "watchdog_manage",
-                          {"action": "arm", "id": 3, "name": "kernel"})
+                          {"action": "arm", "id": 3, "name": "kernel",
+                           "unsafe_without_kicker": True})
         flat = _flatten(env)
         assert flat["ok"] is False
         assert flat["kind"] == "watchdog_collision"
@@ -350,16 +358,25 @@ def test_e_1c_bare_rearm_warns_watchdog_collision(tmp_path):
     asyncio.run(go())
 
 
-def test_e_1c_bare_arm_emits_warning(tmp_path):
+def test_e_1c_bare_arm_refuses_without_kicker(tmp_path):
+    """v0.31 Phase 1.4: bare arm without a kicker is REFUSED by default
+    (breaking from v0.17's warn-only path). Pass unsafe_without_kicker to
+    opt into the fire-and-forget behavior."""
     async def go():
         ctx, server, fake = await _mk_ctx(tmp_path)
         env = await _call(server, "watchdog_manage",
                           {"action": "arm", "id": 2, "name": "kernel",
                            "deadline_ms": 30000})
-        assert env.get("ok") is True
-        warnings = env.get("warnings") or []
-        assert any("without a kicker" in w for w in warnings), warnings
-        assert any("auto_kick" in w for w in warnings), warnings
+        flat = _flatten(env)
+        assert flat["ok"] is False
+        assert flat["kind"] == "watchdog_no_kicker"
+        assert "unsafe_without_kicker" in (flat.get("hint") or "")
+        # Opting in via unsafe_without_kicker makes the same call succeed.
+        env2 = await _call(server, "watchdog_manage",
+                           {"action": "arm", "id": 2, "name": "kernel",
+                            "deadline_ms": 30000,
+                            "unsafe_without_kicker": True})
+        assert env2.get("ok") is True
 
     asyncio.run(go())
 
@@ -370,13 +387,15 @@ def test_e_1c_arm_claims_ownership(tmp_path):
     async def go():
         ctx, server, fake = await _mk_ctx(tmp_path)
         env1 = await _call(server, "watchdog_manage",
-                           {"action": "arm", "id": 9, "name": "kernel"},
+                           {"action": "arm", "id": 9, "name": "kernel",
+                            "unsafe_without_kicker": True},
                            peer="peer-E")
         assert env1.get("ok") is True
         owner = await ctx.ownership.owner_of("watchdog:kernel", "9")
         assert owner == "peer-E"
         env2 = await _call(server, "watchdog_manage",
-                           {"action": "arm", "id": 9, "name": "kernel"},
+                           {"action": "arm", "id": 9, "name": "kernel",
+                            "unsafe_without_kicker": True},
                            peer="peer-Q")
         flat = _flatten(env2)
         assert flat["ok"] is False
@@ -395,7 +414,8 @@ def test_e_1d_disarm_releases_ownership(tmp_path):
         ctx, server, fake = await _mk_ctx(tmp_path)
         # Arm first so ownership is claimed by peer-E.
         arm = await _call(server, "watchdog_manage",
-                          {"action": "arm", "id": 4, "name": "kernel"},
+                          {"action": "arm", "id": 4, "name": "kernel",
+                           "unsafe_without_kicker": True},
                           peer="peer-E")
         assert arm.get("ok") is True
         assert await ctx.ownership.owner_of("watchdog:kernel", "4") == "peer-E"
@@ -407,7 +427,8 @@ def test_e_1d_disarm_releases_ownership(tmp_path):
         assert await ctx.ownership.owner_of("watchdog:kernel", "4") is None
         # And a different peer can now arm the same id without refusal.
         env2 = await _call(server, "watchdog_manage",
-                           {"action": "arm", "id": 4, "name": "kernel"},
+                           {"action": "arm", "id": 4, "name": "kernel",
+                            "unsafe_without_kicker": True},
                            peer="peer-Q")
         assert env2.get("ok") is True
 

@@ -154,9 +154,20 @@ public:
         if (!auth.ok()) {
             return auth;
         }
-        auto res = exec_.RunShell(req->shell() == POWERSHELL, req->command(),
-                                  Utf8ToWide(req->working_dir()), (DWORD)req->timeout_ms(),
-                                  [ctx] { return ctx->IsCancelled(); });
+        suspex::RunResult res;
+        // v0.31 Phase 2.3: when the caller supplied encoded_command and
+        // the shell is PowerShell, go through -EncodedCommand. Plain
+        // command= still works and is the only path for cmd.exe.
+        if (req->shell() == POWERSHELL && !req->encoded_command().empty()) {
+            res = exec_.RunShellEncoded(req->encoded_command(),
+                                        Utf8ToWide(req->working_dir()),
+                                        (DWORD)req->timeout_ms(),
+                                        [ctx] { return ctx->IsCancelled(); });
+        } else {
+            res = exec_.RunShell(req->shell() == POWERSHELL, req->command(),
+                                 Utf8ToWide(req->working_dir()), (DWORD)req->timeout_ms(),
+                                 [ctx] { return ctx->IsCancelled(); });
+        }
         resp->set_exit_code(res.exitCode);
         resp->set_output(res.out.data(), res.out.size());
         if (res.err.size()) {

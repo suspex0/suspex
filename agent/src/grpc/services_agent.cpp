@@ -15,6 +15,7 @@
 #include "../dump/dumper.hpp"
 #include "../files.hpp"
 #include "../host/host_info.hpp"
+#include "../host/net_pin.hpp"
 #include "../pe/pe_reader.hpp"
 #include "../pe/heap_walker.hpp"
 #include "../watch.hpp"
@@ -110,8 +111,33 @@ public:
         using RtlGetVersionFn = LONG(WINAPI*)(OSVERSIONINFOEXW*);
         auto rtl = (RtlGetVersionFn)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlGetVersion");
         if (rtl && rtl(&os) == 0) {
-            resp->set_os_version("Windows " + std::to_string(os.dwMajorVersion) + "." +
-                                 std::to_string(os.dwMinorVersion));
+            // Win11 still reports dwMajorVersion 10 — the marketing name
+            // derives from the build (>= 22000) plus the registry's
+            // DisplayVersion (25H2/24H2/...). Dashboard: shows as
+            // "Windows 11 25H2 (26200)" instead of "Windows 10.0 (26200)".
+            std::string name = os.dwBuildNumber >= 22000 ? "Windows 11" : "Windows 10";
+            static const std::string displayVersion = [] {
+                wchar_t dv[32] = {};
+                DWORD size = sizeof(dv);
+                if (RegGetValueW(HKEY_LOCAL_MACHINE,
+                                 L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion",
+                                 L"DisplayVersion", RRF_RT_REG_SZ, nullptr, dv,
+                                 &size) == ERROR_SUCCESS) {
+                    int n = WideCharToMultiByte(CP_UTF8, 0, dv, -1, nullptr, 0,
+                                                nullptr, nullptr);
+                    if (n > 1) {
+                        std::string out(n - 1, '\0');
+                        WideCharToMultiByte(CP_UTF8, 0, dv, -1, out.data(), n,
+                                            nullptr, nullptr);
+                        return out;
+                    }
+                }
+                return std::string();
+            }();
+            if (!displayVersion.empty()) {
+                name += " " + displayVersion;
+            }
+            resp->set_os_version(name);
             resp->set_os_build(os.dwBuildNumber);
         }
         auto info = drv_.Query();
@@ -146,6 +172,26 @@ public:
         resp->set_agent_uptime_ms(AgentUptimeMs());
         resp->set_boot_epoch_ms(BootEpochMs());
         resp->set_agent_instance_id(AgentInstanceId());
+        // v0.31 Phase 2.1: pack a lightweight adapter list onto every
+        // Status call so the orchestrator can detect NIC flaps without
+        // the full HostInfo roundtrip. Collecting adapters is cheap
+        // (handful of rows); hardware/security-products skipped.
+        try {
+            suspex::host::HostInfo hi;
+            suspex::host::ProbeAdapters(hi);
+            for (const auto& a : hi.ipv4) {
+                auto* row = resp->add_ipv4();
+                row->set_adapter(a.adapter);
+                row->set_address(a.address);
+                row->set_prefix_len(a.prefix_len);
+                row->set_origin(a.origin);
+                row->set_gateway(a.gateway);
+                row->set_mac(a.mac);
+                row->set_up(a.up);
+            }
+        } catch (...) {
+            // Status must never fail on adapter enumeration; drop silently.
+        }
         resp->mutable_status()->set_ok(true);
         return grpc::Status::OK;
     }
@@ -485,6 +531,17 @@ public:
         for (const auto& err : h.probe_errors) {
             resp->add_probe_errors(err);
         }
+        // v0.31 Phase 2.1: network identity echo.
+        for (const auto& a : h.ipv4) {
+            auto* row = resp->add_ipv4();
+            row->set_adapter(a.adapter);
+            row->set_address(a.address);
+            row->set_prefix_len(a.prefix_len);
+            row->set_origin(a.origin);
+            row->set_gateway(a.gateway);
+            row->set_mac(a.mac);
+            row->set_up(a.up);
+        }
         FillStatus(resp, "");
         return grpc::Status::OK;
     }
@@ -567,10 +624,66 @@ private:
     DriverMgr& drv_;
 };
 
+// ---------------------------------------------------- NetPin svc (v0.31) ----
+
+class NetPinSvc final : public NetPin::Service {
+public:
+    NetPinSvc(const AgentConfig& cfg, host::NetPinMgr& pin) : cfg_(cfg), pin_(pin) {}
+
+    grpc::Status Status(::grpc::ServerContext* ctx, const NetPinStatusRequest*,
+                        NetPinStatusResponse* resp) override
+    {
+        auto auth = CheckAuth(ctx, cfg_.token);
+        if (!auth.ok()) {
+            return auth;
+        }
+        auto st = pin_.Snapshot();
+        resp->set_enabled(st.enabled);
+        resp->set_hold(st.hold);
+        resp->set_adapter(st.adapter);
+        resp->set_pinned_address(st.pinned_address);
+        resp->set_pinned_prefix(st.pinned_prefix);
+        resp->set_pinned_gateway(st.pinned_gateway);
+        resp->set_current_address(st.current_address);
+        resp->set_last_pin_at_epoch_ms(st.last_pin_at_epoch_ms);
+        resp->set_pin_attempts(st.pin_attempts);
+        resp->set_pin_failures_streak(st.pin_failures_streak);
+        resp->set_last_error(st.last_error);
+        resp->mutable_status()->set_ok(true);
+        return grpc::Status::OK;
+    }
+
+    grpc::Status Apply(::grpc::ServerContext* ctx, const NetPinApplyRequest* req,
+                       NetPinApplyResponse* resp) override
+    {
+        auto auth = CheckAuth(ctx, cfg_.token);
+        if (!auth.ok()) {
+            return auth;
+        }
+        std::string err;
+        bool ok = pin_.ApplyOnce(req->clear_hold(), &err);
+        resp->set_applied(ok);
+        resp->set_details(err);
+        FillStatus(resp, ok ? "" : err);
+        return grpc::Status::OK;
+    }
+
+private:
+    const AgentConfig& cfg_;
+    host::NetPinMgr& pin_;
+};
+
 void RegisterAgentSvc(grpc::ServerBuilder& builder, const AgentConfig& cfg, DriverMgr& drv)
 {
     static AgentSvc agentSvc(cfg, drv);
     builder.RegisterService(&agentSvc);
+}
+
+void RegisterNetPinSvc(grpc::ServerBuilder& builder, const AgentConfig& cfg,
+                       host::NetPinMgr& netPin)
+{
+    static NetPinSvc netPinSvc(cfg, netPin);
+    builder.RegisterService(&netPinSvc);
 }
 
 } // namespace suspex

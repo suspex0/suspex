@@ -148,7 +148,8 @@ bool Driver::PhysRanges(std::vector<PhysRange>& out)
 }
 
 bool Driver::PoolScan(const PoolScanOptions& opts, std::vector<PoolBlockInfo>& out,
-                      UINT32* required, UINT32* considered)
+                      UINT32* required, UINT32* considered,
+                      PoolScanTelemetry* telemetry)
 {
     if (opts.Pattern.size() > SUSPEX_POOL_PATTERN_MAX
         || opts.Mask.size() > SUSPEX_POOL_PATTERN_MAX
@@ -163,6 +164,7 @@ bool Driver::PoolScan(const PoolScanOptions& opts, std::vector<PoolBlockInfo>& o
     in.Offset = opts.Offset;
     in.ContentSpan = opts.ContentSpan;
     in.PatternLen = (UINT32)opts.Pattern.size();
+    in.Cursor = opts.Cursor;
     if (!opts.Pattern.empty()) {
         memcpy(in.Pattern, opts.Pattern.data(), opts.Pattern.size());
     }
@@ -189,6 +191,14 @@ bool Driver::PoolScan(const PoolScanOptions& opts, std::vector<PoolBlockInfo>& o
     }
     if (required) *required = hdr->Required;
     if (considered) *considered = hdr->Considered;
+    if (telemetry) {
+        telemetry->Required = hdr->Required;
+        telemetry->Considered = hdr->Considered;
+        telemetry->Holes = hdr->Holes;
+        telemetry->SpanTruncated = hdr->SpanTruncated;
+        telemetry->LastIndex = hdr->LastIndex;
+        telemetry->NextCursor = hdr->NextCursor;
+    }
     return true;
 }
 

@@ -120,8 +120,18 @@ class DeviceMixin:
         )
         return {"ok": msg.status.ok, "error": msg.status.error,
                 "count": int(msg.count), "truncated": bool(msg.truncated),
-                "entries": [{"name": e.name, "type": e.type}
-                            for e in msg.entries]}
+                "entries": [
+                    {
+                        "name": e.name,
+                        "type": e.type,
+                        # v0.31 Phase 3.1: body VA + type-index + source.
+                        # Empty / 0 on pre-v0.31 agents.
+                        "address": int(getattr(e, "address", 0) or 0),
+                        "type_index": int(
+                            getattr(e, "type_index", 0) or 0),
+                        "source": str(getattr(e, "source", "") or ""),
+                    }
+                    for e in msg.entries]}
 
     # -------------------------------------------------------------- Events ----
 

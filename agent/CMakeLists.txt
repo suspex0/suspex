@@ -11,7 +11,9 @@ set(SUSPEX_AGENT_SOURCES
     src/driver_mgr.cpp
     src/exec.cpp
     src/files.cpp
+    src/listen_watch.cpp
     src/log_ring.cpp
+    src/srv_log.cpp
     src/watch.cpp
     src/exec/detached.cpp
     src/exec/call_user.cpp
@@ -23,6 +25,7 @@ set(SUSPEX_AGENT_SOURCES
     src/dbg/dbg_exec.cpp
     src/dump/dumper.cpp
     src/host/host_info.cpp
+    src/host/net_pin.cpp
     src/host/capture_dxgi.cpp
     src/host/capture_wgc.cpp
     src/host/window_enum.cpp
@@ -70,6 +73,9 @@ target_link_libraries(suspex_agent PRIVATE
     shell32
     userenv
     ntdll
+    # v0.31 Phase 2.2/5: net_pin adapter APIs + listener self-test
+    iphlpapi
+    ws2_32
     # v15 screen capture / window telemetry
     user32
     gdi32
