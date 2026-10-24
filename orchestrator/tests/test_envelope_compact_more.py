@@ -18,7 +18,7 @@ Coverage:
                    (source key ``"items"`` since the exports action
                    migrated to ``list_envelope``).
   * ``imports`` — hooked-entry annotation preserved.
-  * v0.31: the collapse fires at the default ``verbosity="normal"`` as well
+  * v1.0.1: the collapse fires at the default ``verbosity="normal"`` as well
     as ``"compact"``; ``"full"``/``"raw"`` preserve the dict shape.
   * Non-registered ``(tool, action)`` pairs are untouched.
 """
@@ -104,7 +104,7 @@ def test_compact_disasm_accepts_hex_string_address():
 
 
 def test_compact_disasm_on_at_normal():
-    # v0.31: row-collapse now fires at the default "normal" too, not only
+    # v1.0.1: row-collapse now fires at the default "normal" too, not only
     # "compact" — the savings apply by default.
     env = _mk("mem_rw", "disasm", {"items": [dict(_DISASM_ROWS[0])]})
     _finalize_normal(env)
@@ -137,7 +137,7 @@ def test_compact_handles():
 
 
 def test_compact_handles_on_at_normal():
-    # v0.31: collapse at the default "normal"; full/raw keep dict rows.
+    # v1.0.1: collapse at the default "normal"; full/raw keep dict rows.
     env = _mk("mem_rw", "handles", {"items": [
         {"handle": 1, "type_name": "File", "object": 0,
          "granted_access": 0, "name": ""},
@@ -247,7 +247,7 @@ def test_compact_imports_falls_back_to_ordinal_when_name_empty():
 
 
 # ---------------------------------------------------------------------------
-# v0.31 generic kv-collapse (_text_line_kv) for the extra list actions
+# v1.0.1 generic kv-collapse (_text_line_kv) for the extra list actions
 # ---------------------------------------------------------------------------
 
 def test_compact_kv_process_list_at_normal():
@@ -335,7 +335,7 @@ def test_compact_transforms_registry_completeness():
         ("mem_rw", "heaps"),
         ("mem_rw", "exports"),
         ("mem_rw", "imports"),
-        # v0.31 generic kv-collapse additions
+        # v1.0.1 generic kv-collapse additions
         ("mem_rw", "process_list"),
         ("mem_rw", "threads"),
         ("debug_manage", "threads"),

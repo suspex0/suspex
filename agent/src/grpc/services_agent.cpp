@@ -172,7 +172,7 @@ public:
         resp->set_agent_uptime_ms(AgentUptimeMs());
         resp->set_boot_epoch_ms(BootEpochMs());
         resp->set_agent_instance_id(AgentInstanceId());
-        // v0.31 Phase 2.1: pack a lightweight adapter list onto every
+        // v1.0.1 Phase 2.1: pack a lightweight adapter list onto every
         // Status call so the orchestrator can detect NIC flaps without
         // the full HostInfo roundtrip. Collecting adapters is cheap
         // (handful of rows); hardware/security-products skipped.
@@ -531,7 +531,7 @@ public:
         for (const auto& err : h.probe_errors) {
             resp->add_probe_errors(err);
         }
-        // v0.31 Phase 2.1: network identity echo.
+        // v1.0.1 Phase 2.1: network identity echo.
         for (const auto& a : h.ipv4) {
             auto* row = resp->add_ipv4();
             row->set_adapter(a.adapter);
@@ -624,7 +624,7 @@ private:
     DriverMgr& drv_;
 };
 
-// ---------------------------------------------------- NetPin svc (v0.31) ----
+// ---------------------------------------------------- NetPin svc (v1.0.1) ----
 
 class NetPinSvc final : public NetPin::Service {
 public:

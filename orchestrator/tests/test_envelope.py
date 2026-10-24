@@ -390,7 +390,7 @@ def test_finalize_strips_decoded_at_compact():
 
 
 def test_finalize_strips_decoded_at_normal():
-    # v0.31: `_decoded` enum siblings are dropped at the default "normal"
+    # v1.0.1: `_decoded` enum siblings are dropped at the default "normal"
     # (they doubled every enum field); the raw value stays.
     env = _env_with({"protect": "0x20", "protect_decoded": "PAGE_EXECUTE_READ"})
     finalize(env, opts=EnvelopeOpts(verbosity="normal"))
@@ -441,7 +441,7 @@ def test_finalize_recurses_into_lists_and_nested_dicts():
     finalize(env, opts=EnvelopeOpts(verbosity="normal"))
     for m in env["data"]["modules"]:
         assert "base_int" not in m
-        assert "protect_decoded" not in m  # v0.31: normal strips decoded
+        assert "protect_decoded" not in m  # v1.0.1: normal strips decoded
         assert m["protect"] == "0x20"      # raw value stays
 
 

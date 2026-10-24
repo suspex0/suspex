@@ -16,13 +16,13 @@ struct AgentConfig {
     size_t maxTransferBytes = 512ull * 1024 * 1024;
     size_t maxMemReadBytes = 8ull * 1024 * 1024;
 
-    // v0.31 Phase 5: lifecycle + diagnostics.
+    // v1.0.1 Phase 5: lifecycle + diagnostics.
     bool devConsole = false;       // --dev: console mode (also disables the
                                    // stdio-to-NUL redirect; see srv_log.hpp)
     std::wstring logPath;          // --log <path>: rotating agent+gRPC log
     size_t logMaxBytes = 4ull * 1024 * 1024; // --log-max-mb <n>
 
-    // v0.31 Phase 2.2: static-IPv4 pinning. Disabled unless pin_adapter
+    // v1.0.1 Phase 2.2: static-IPv4 pinning. Disabled unless pin_adapter
     // is non-empty. The agent re-applies pin_address/pin_prefix (and the
     // optional gateway) at service start and on NotifyUnicastIpAddressChange,
     // debounced by pin_debounce_ms. Only the named adapter is ever touched.

@@ -293,7 +293,7 @@ def enrich_error(tool: str, action: str, msg: str,
     driver's actual version so the caller sees "you have 1.3 — safe" or
     "you have 1.1 — DANGEROUS" rather than a static warning.
 
-    v0.31 Phase 1.1: for dead-view / channel-unavailable errors, the
+    v1.0.1 Phase 1.1: for dead-view / channel-unavailable errors, the
     caller passes the focused view's name and last-known endpoint, plus
     an optional focus_hint. The returned ``hint`` is augmented with
     "connect host=<ep> / use machine=<view>" so the caller sees the

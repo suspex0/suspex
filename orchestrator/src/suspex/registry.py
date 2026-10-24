@@ -37,7 +37,7 @@ DEFAULT_ALIAS = "default"
 
 _METADATA_FIELDS = ("trust", "purpose", "note", "operator", "tags")
 
-# v0.31 Phase 1.2: observed-endpoint cap per machine (newest first). Keeps
+# v1.0.1 Phase 1.2: observed-endpoint cap per machine (newest first). Keeps
 # the registry file small when a box flaps endpoints across sessions.
 _OBSERVED_ENDPOINT_CAP = 8
 
@@ -307,7 +307,7 @@ class MachineRegistry:
 
     def record_observed_endpoint(self, alias: str, *, host: str, port: int,
                                  boot_epoch_ms: int = 0) -> None:
-        """v0.31 Phase 1.2: note that *host:port* answered a gRPC connect
+        """v1.0.1 Phase 1.2: note that *host:port* answered a gRPC connect
         for the machine *alias*. The newest observation shows first; the
         list is capped at :data:`_OBSERVED_ENDPOINT_CAP` entries. YAML
         aliases participate too (no shadow needed) — this is pure learned

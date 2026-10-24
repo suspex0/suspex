@@ -38,7 +38,7 @@ APPROVED_SCOPES: frozenset[str] = frozenset({
     "decompiler",      # ida_manage / ghidra_manage decompile + xref
     "dump-threads",    # dump_manage parse / stack thread walks
     "event-window",    # bp_manage event drain windows
-    # v0.31 Phase 1.5 / Phase 4
+    # v1.0.1 Phase 1.5 / Phase 4
     "pointer-chain",   # mem_rw follow_chain pointer walks
     "leak-kernel_pool",  # mem_rw leak_scan kernel pool coverage
     "leak-module_data",  # mem_rw leak_scan module .data/.rdata coverage

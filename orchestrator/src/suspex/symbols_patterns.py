@@ -1,4 +1,4 @@
-"""v0.31 Phase 1.7 — known-globals signature pack.
+"""v1.0.1 Phase 1.7 — known-globals signature pack.
 
 A curated set of byte patterns that locate exported-but-unnamed kernel
 globals (ObpRootDirectoryObject, PsLoadedModuleList, KdDebuggerDataBlock,

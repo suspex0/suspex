@@ -1,6 +1,6 @@
 #pragma once
 
-// v0.31 Phase 5 — rotating agent log + stdio safety for session-0 runs.
+// v1.0.1 Phase 5 — rotating agent log + stdio safety for session-0 runs.
 //
 // Field report (rig): the agent ran via `cmd /c suspex_agent.exe --dev ...`
 // under a scheduled task; after NIC churn the process stayed alive with the

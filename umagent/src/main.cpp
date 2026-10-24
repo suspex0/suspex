@@ -142,7 +142,7 @@ int UmMain(int argc, char** argv)
 
     um::EnableDebugPriv(); // best effort: SeDebugPrivilege when run elevated
 
-    // v0.31 Phase 5: same stdio/log safety as the agent (see srv_log.hpp).
+    // v1.0.1 Phase 5: same stdio/log safety as the agent (see srv_log.hpp).
     suspex::srvlog::Open(logPath);
     if (!dev) {
         if (suspex::srvlog::Enabled()) {
@@ -154,7 +154,7 @@ int UmMain(int argc, char** argv)
     suspex::srvlog::Logf("suspex_umagent %s starting (pid %lu)", cfg.version.c_str(),
                          (unsigned long)GetCurrentProcessId());
 
-    // v0.31 Phase 5: bind-retry + listener self-test/rebind, same as the
+    // v1.0.1 Phase 5: bind-retry + listener self-test/rebind, same as the
     // agent — the umagent shares every failure mode from the rig report.
     std::string addr = cfg.bind + ":" + std::to_string(cfg.port);
     for (int generation = 1;; generation++) {

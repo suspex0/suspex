@@ -43,19 +43,19 @@ static_assert(offsetof(SUSPEX_PHYS_RANGE_ENTRY, Kind) == 16,
               "ABI v4 phys-range entry layout (Kind must follow Base+Size at offset 16)");
 static_assert(sizeof(SUSPEX_PHYS_RANGES_HDR) == 16,
               "ABI v4 phys-ranges header size (expect Status+Count+Required+Reserved = 16)");
-// v0.31 Phase 3.2: SUSPEX_POOL_SCAN_IN gained a Cursor UINT32 (7 UINT32s
+// v1.0.1 Phase 3.2: SUSPEX_POOL_SCAN_IN gained a Cursor UINT32 (7 UINT32s
 // total) and the pattern/mask arrays grew from 16 B to 64 B. HDR gained
 // Holes/SpanTruncated/LastIndex/NextCursor (8 UINT32s total).
 static_assert(sizeof(SUSPEX_POOL_SCAN_IN) == 28 + SUSPEX_POOL_PATTERN_MAX * 2,
-              "ABI v0.31 pool-scan input size (7*UINT32 + 2*Pattern[SUSPEX_POOL_PATTERN_MAX])");
+              "ABI v1.0.1 pool-scan input size (7*UINT32 + 2*Pattern[SUSPEX_POOL_PATTERN_MAX])");
 static_assert(offsetof(SUSPEX_POOL_SCAN_IN, Pattern) == 24,
-              "ABI v0.31 pool-scan input layout (Pattern must follow the first six UINT32 fields at offset 24; Cursor sits after Mask)");
+              "ABI v1.0.1 pool-scan input layout (Pattern must follow the first six UINT32 fields at offset 24; Cursor sits after Mask)");
 static_assert(sizeof(SUSPEX_POOL_ENTRY) == 32,
               "ABI v4 pool entry size (expect VA+Size+Tag+NonPaged+MatchedOffset = 32)");
 static_assert(offsetof(SUSPEX_POOL_ENTRY, MatchedOffset) == 24,
               "ABI v4 pool entry layout (MatchedOffset must sit at offset 24)");
 static_assert(sizeof(SUSPEX_POOL_HDR) == 32,
-              "ABI v0.31 pool header size (Status+Count+Required+Considered+Holes+SpanTruncated+LastIndex+NextCursor = 32)");
+              "ABI v1.0.1 pool header size (Status+Count+Required+Considered+Holes+SpanTruncated+LastIndex+NextCursor = 32)");
 
 // ABI v7 (2026-09-09): no driver-side struct changes - the bump gates the new
 // agent/comm surfaces (gRPC VaTranslate/Watch/LogTail/detached, agent_uptime_ms,

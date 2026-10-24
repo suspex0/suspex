@@ -63,12 +63,12 @@ MEM_ACTIONS = ["read", "write", "alloc", "free", "protect", "modules",
                # v0.25 forensic verbs (engagement feedback #9/#10):
                # dps-style pointer scan, named-type read sugar, IDT dump.
                "resolve_range", "dps", "dt", "idt",
-               # v0.31 Phase 1.5: pointer-chain chase (orchestrator-side
+               # v1.0.1 Phase 1.5: pointer-chain chase (orchestrator-side
                # composition). offsets=[0x18, 0x178, ...] from address=,
                # with optional per-hop validators (expect_ascii,
                # expect_nonzero, expect_module).
                "follow_chain",
-               # v0.31 Phase 4: cross-scope needle sweep. Takes
+               # v1.0.1 Phase 4: cross-scope needle sweep. Takes
                # needles=[b"..."]/[...hex] and scopes (kernel_pool,
                # module_data, per_process), reuses pool_scan's cursor and
                # the pattern_scan job infra; produces per-scope coverage.
@@ -940,13 +940,13 @@ def register(mcp, ctx: Context) -> None:
                                                   "machine's kernel view; "
                                                   "'<machine>.<kind>' for a "
                                                   "specific view)")
-        # --- v0.31 Phase 1.5: follow_chain ---
+        # --- v1.0.1 Phase 1.5: follow_chain ---
         offsets: list[int] | None = Field(
             default=None,
             description="follow_chain: hop offsets added before each "
                         "deref (last hop stops before the final deref "
                         "and reads terminal_size bytes instead)")
-        # --- v0.31 Phase 4: leak_scan ---
+        # --- v1.0.1 Phase 4: leak_scan ---
         needles: list[str] | None = Field(
             default=None,
             description="leak_scan: byte needles — raw ASCII, or "
@@ -1033,13 +1033,13 @@ def register(mcp, ctx: Context) -> None:
                      # --- v14: NtQSI enrichments (no driver needed) ---
                      with_cmdline: bool = False,
                      with_context: bool = False,
-                     # --- v0.31 Phase 1.5: follow_chain ---
+                     # --- v1.0.1 Phase 1.5: follow_chain ---
                      offsets: list[int] | None = None,
                      terminal_size: int = 0,
                      expect_ascii: bool = False,
                      expect_nonzero: bool = False,
                      expect_module: str = "",
-                     # --- v0.31 Phase 4: leak_scan ---
+                     # --- v1.0.1 Phase 4: leak_scan ---
                      needles: list[str] | None = None,
                      scopes: list[str] | None = None,
                      name: str = "") -> str:
@@ -1418,7 +1418,7 @@ def register(mcp, ctx: Context) -> None:
                     *(["read_failed_mid_buffer"] if len(data) < n else []))
                 return _j(payload)
             if action == "follow_chain":
-                # v0.31 Phase 1.5: orchestrator-side pointer-chain chase.
+                # v1.0.1 Phase 1.5: orchestrator-side pointer-chain chase.
                 # Loop N-1 derefs (address + offsets[0], read 8 bytes;
                 # that is hop 1's VA. address + offsets[1]; etc). After
                 # the final offset, optionally read terminal_size bytes
@@ -3204,7 +3204,7 @@ def register(mcp, ctx: Context) -> None:
                     *(["provider_truncated"] if res.get("truncated") else []))
                 return _j(env)
 
-            # ---- v0.31 Phase 4: cross-scope needle sweep ----
+            # ---- v1.0.1 Phase 4: cross-scope needle sweep ----
             if action == "leak_scan":
                 if not needles:
                     return _j({"ok": False, "kind": "bad_arg",

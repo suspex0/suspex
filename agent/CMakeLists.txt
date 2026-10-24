@@ -73,7 +73,7 @@ target_link_libraries(suspex_agent PRIVATE
     shell32
     userenv
     ntdll
-    # v0.31 Phase 2.2/5: net_pin adapter APIs + listener self-test
+    # v1.0.1 Phase 2.2/5: net_pin adapter APIs + listener self-test
     iphlpapi
     ws2_32
     # v15 screen capture / window telemetry

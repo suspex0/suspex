@@ -60,7 +60,7 @@ _TABLE: dict[str, dict[str, str]] = {
         # (target-authored), so over-mark it.
         "machines_register": _TRUSTED, "machines_set": _TRUSTED,
         "machines_unregister": _TRUSTED, "machines": _TARGET,
-        # v0.31 Phase 1.6 / 2.4
+        # v1.0.1 Phase 1.6 / 2.4
         "timeline": _TARGET,       # merges op log + boot id + watchdog state
         "rediscover": _TARGET,     # probes target endpoints
     },
@@ -82,7 +82,7 @@ _TABLE: dict[str, dict[str, str]] = {
         "threads": _TARGET, "obj_enum": _TARGET,
         "resolve_range": _TARGET, "dps": _TARGET, "dt": _TARGET,
         "idt": _TARGET,
-        # v0.31 Phase 1.5 / Phase 4
+        # v1.0.1 Phase 1.5 / Phase 4
         "follow_chain": _TARGET,   # orchestrator-side pointer walk reads
         "leak_scan": _TARGET,      # cross-scope needle sweep reads
     },

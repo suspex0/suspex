@@ -1134,7 +1134,7 @@ public:
         opts.MaxResults = req->max_results();
         opts.Offset = req->offset();
         opts.ContentSpan = req->content_span();
-        // v0.31 Phase 3.2: resume cursor from a previous scan.
+        // v1.0.1 Phase 3.2: resume cursor from a previous scan.
         opts.Cursor = req->cursor();
         if (req->nonpaged_only()) {
             opts.Flags |= SUSPEX_POOL_FLAG_NONPAGED_ONLY;
@@ -1190,7 +1190,7 @@ public:
         }
         resp->set_required(required);
         resp->set_considered(considered);
-        // v0.31 Phase 3.2: telemetry.
+        // v1.0.1 Phase 3.2: telemetry.
         resp->set_holes(telem.Holes);
         resp->set_span_truncated(telem.SpanTruncated);
         resp->set_last_index(telem.LastIndex);
@@ -1420,7 +1420,7 @@ public:
             auto* row = resp->add_entries();
             row->set_name(WideToUtf8(e.Name));
             row->set_type(WideToUtf8(e.Type));
-            // v0.31 Phase 3.1: object body VA + type index + walk source.
+            // v1.0.1 Phase 3.1: object body VA + type index + walk source.
             row->set_address(e.Address);
             row->set_type_index(e.TypeIndex);
             row->set_source(e.Source);

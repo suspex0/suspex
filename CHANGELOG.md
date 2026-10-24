@@ -4,7 +4,7 @@ Version history and rebuild recipes for the suspex0 stack. Entries are
 reverse-chronological; each header calls out which of `driver`, `agent`, or
 `orchestrator` must rebuild.
 
-## v0.31 — field-feedback hardening (orchestrator + agent + driver rebuild)
+## v1.0.1 — field-feedback hardening (orchestrator + agent + driver rebuild)
 
 Phased delivery of the eleven-finding review plus the owner's two-cents
 network self-heal. Each phase ships independently; the recipe below says
@@ -159,7 +159,7 @@ unwired. Now built, configured (`--pin-adapter/--pin-address/--pin-prefix/
 --pin-gateway/--pin-debounce-ms/--pin-at-boot-only/--pin-hold-marker`),
 started at agent boot, and exposed over the new `NetPin` gRPC service
 (`Status` snapshot / `Apply` one-shot re-pin with `clear_hold`). And the
-agent version constant moved from the stale `0.10.0` to `0.31.0` — the
+agent version constant moved from the stale `0.10.0` to `1.0.1` — the
 `+<sha>-dirty` suffixes in field reports now match the changelog.
 
 ### Phase 5 follow-up (rig reboot war, 2026-10-24)

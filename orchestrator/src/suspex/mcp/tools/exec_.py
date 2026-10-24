@@ -142,7 +142,7 @@ _RUN_DEADLINE_HINT = ("sync run_* enforces timeout_ms on the agent (child "
                       "/ detached_tail)")
 
 
-# v0.31 Phase 1.3: when the caller raised timeout_s above the default 30s
+# v1.0.1 Phase 1.3: when the caller raised timeout_s above the default 30s
 # but left timeout_ms at its default 30000, derive a matching timeout_ms
 # so the agent-side process deadline keeps up with the orchestrator-side
 # await deadline. Capped at the MCP response-budget ceiling to leave room
@@ -493,7 +493,7 @@ def register(mcp, ctx: Context) -> None:
                                "detached_kill")
                 return _j(out)
             if action == "run_exe":
-                # v0.31 Phase 1.3: honor timeout_s when timeout_ms is at
+                # v1.0.1 Phase 1.3: honor timeout_s when timeout_ms is at
                 # its default — a caller that raised timeout_s but left
                 # timeout_ms alone used to see the orchestrator wait N
                 # seconds while the agent killed the child at 30s.
@@ -593,7 +593,7 @@ def register(mcp, ctx: Context) -> None:
             if action == "run_powershell":
                 # script_b64 was decoded into the run_script path above —
                 # what remains here is a plain command line.
-                # v0.31 Phase 1.8: auto-route long / multi-line /
+                # v1.0.1 Phase 1.8: auto-route long / multi-line /
                 # non-ASCII `command=` through the run_script upload
                 # path. `powershell -Command <quoted>` collapses on
                 # embedded quotes, backticks, newlines, or non-ASCII

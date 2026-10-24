@@ -89,7 +89,7 @@ class Context:
         if self._registry is None:
             from ...registry import MachineRegistry
             self._registry = MachineRegistry.load(self.cfg)
-            # v0.31 Phase 1.2: feed observed endpoints back into Session's
+            # v1.0.1 Phase 1.2: feed observed endpoints back into Session's
             # connect-candidate list so a boxed-up endpoint flap self-heals
             # (DHCP changed the IP; the registry remembered the IP the box
             # actually answered on, and connect probes that first).

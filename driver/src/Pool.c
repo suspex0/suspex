@@ -218,14 +218,14 @@ NTSTATUS SuspxPoolScan(_In_ const SUSPEX_POOL_SCAN_IN* In,
             wanted = span;
             if (wanted > size - offset) {
                 wanted = size - offset;
-                // v0.31 Phase 3.2: track span clipping so the caller can
+                // v1.0.1 Phase 3.2: track span clipping so the caller can
                 // see "scanned to end of entry" vs "stopped at span cap".
                 span_trunc++;
             }
             win_va = va + offset;
             rd = SuspxReadKernelWindow(win_va, scratch, wanted, &got);
             if (!NT_SUCCESS(rd) || got == 0) {
-                // v0.31 Phase 3.2: count holes instead of silently
+                // v1.0.1 Phase 3.2: count holes instead of silently
                 // dropping — the caller can now tell "no match in N
                 // entries" from "N entries unreadable".
                 holes++;

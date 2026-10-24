@@ -231,11 +231,11 @@ TARGET_ACTIONS = ["connect", "disconnect", "reconnect", "use",
                   # v0.30 machine registry (purpose/note/trust metadata)
                   "machines_register", "machines_set",
                   "machines_unregister", "machines",
-                  # v0.31 Phase 1.6: merged timeline view
+                  # v1.0.1 Phase 1.6: merged timeline view
                   # (boot identity + agent restarts + watchdog events +
                   #  recent ops + crash state + new minidumps)
                   "timeline",
-                  # v0.31 Phase 2.4: rediscover a machine's endpoint via
+                  # v1.0.1 Phase 2.4: rediscover a machine's endpoint via
                   # parallel probe of configured/observed/alt_hosts +
                   # hostname resolution; swaps the live view on match.
                   "rediscover"]
@@ -463,7 +463,7 @@ def register(mcp, ctx: Context) -> None:
         focus: bool = Field(
             default=True,
             description="connect only: set this chat's focus to the "
-                        "newly-connected view (v0.31+); false preserves "
+                        "newly-connected view (v1.0.1+); false preserves "
                         "an existing focus")
         peer_id: str = Field(
             default="",
@@ -558,7 +558,7 @@ def register(mcp, ctx: Context) -> None:
                     return _j({"ok": True, "focus": None,
                                "cleared": ctx.session.clear_focus(cid)})
                 try:
-                    # v0.31 Phase 1.1: this used to assign to a local
+                    # v1.0.1 Phase 1.1: this used to assign to a local
                     # named `focus`, which shadowed the connect-path's
                     # focus= parameter in the enclosing scope. Rename to
                     # keep run()'s closures to the kwarg clean.
@@ -619,7 +619,7 @@ def register(mcp, ctx: Context) -> None:
                     return _j({"ok": False, "kind": "bad_arg",
                                "error": f"{action}: machine= (alias) "
                                         "is required"})
-                # v0.31 Phase 1.1: alias hygiene. If the caller registers
+                # v1.0.1 Phase 1.1: alias hygiene. If the caller registers
                 # a machine whose alias looks like an IPv4 (or ends in a
                 # digit cluster that matches a live view's computer_name
                 # suffix), warn: this is the k205/k207/k206 litter — the
@@ -766,7 +766,7 @@ def register(mcp, ctx: Context) -> None:
                         ctx.set_current_session_id(
                             cid, ctx.ledger.start_session(
                                 ctx.session.cfg.target_endpoint))
-                    # v0.31 Phase 1.2 + 2.1: self-heal — the endpoint that
+                    # v1.0.1 Phase 1.2 + 2.1: self-heal — the endpoint that
                     # just answered is now registry-known for this machine,
                     # and every IPv4 the agent sees on an up-adapter joins
                     # it (so a flap to another lease self-heals in one
@@ -1449,7 +1449,7 @@ def register(mcp, ctx: Context) -> None:
                     out["minidump_error"] = str(exc)
                 return _j(out)
             if action == "timeline":
-                # v0.31 Phase 1.6: merged chronological view of a target
+                # v1.0.1 Phase 1.6: merged chronological view of a target
                 # that stitches together the pieces already recorded
                 # elsewhere — boot identity, agent restarts, watchdog
                 # arms/fires, recent orchestrator ops, crash state, and
@@ -1553,7 +1553,7 @@ def register(mcp, ctx: Context) -> None:
                              "'crash_state') for full post-crash detail."),
                 })
             if action == "rediscover":
-                # v0.31 Phase 2.4: re-probe a machine's known endpoints
+                # v1.0.1 Phase 2.4: re-probe a machine's known endpoints
                 # in parallel. Scope here (Phase 1 half): registry
                 # observed_endpoints + configured + alt_hosts +
                 # hostname resolution via getaddrinfo. On success,

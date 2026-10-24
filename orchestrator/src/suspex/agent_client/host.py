@@ -137,7 +137,7 @@ class HostMixin:
                 for p in msg.security_products
             ],
             "probe_errors": list(msg.probe_errors),
-            # v0.31 Phase 2.1: adapter list for registry self-heal /
+            # v1.0.1 Phase 2.1: adapter list for registry self-heal /
             # rediscover. Empty on agents that predate the field.
             "ipv4": [
                 {"adapter": a.adapter, "address": a.address,

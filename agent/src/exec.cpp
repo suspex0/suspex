@@ -135,7 +135,7 @@ RunResult ExecMgr::RunShell(bool powershell, const std::string& command,
     }
     std::wstring full;
     if (powershell) {
-        // v0.31 Phase 2.3: force UTF-8 output encoding before the user's
+        // v1.0.1 Phase 2.3: force UTF-8 output encoding before the user's
         // command so stdout survives the Windows codepage ride without
         // becoming `â†’` noise. Separator is `;` so the user's command
         // text is appended verbatim.
@@ -147,7 +147,7 @@ RunResult ExecMgr::RunShell(bool powershell, const std::string& command,
     return RunProcess(full, workDir, timeoutMs, cancelled);
 }
 
-// v0.31 Phase 2.3: PowerShell -EncodedCommand path.
+// v1.0.1 Phase 2.3: PowerShell -EncodedCommand path.
 RunResult ExecMgr::RunShellEncoded(const std::string& encoded_b64,
                                    const std::wstring& workDir,
                                    DWORD timeoutMs,

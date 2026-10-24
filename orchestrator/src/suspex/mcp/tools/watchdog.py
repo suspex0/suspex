@@ -117,7 +117,7 @@ def register(mcp, ctx: Context) -> None:
         args = {"action": action, "id": id, "deadline_ms": deadline_ms}
 
         async def run() -> str:
-            # v0.31 Phase 1.4: `id` may be rebound inside the arm branch
+            # v1.0.1 Phase 1.4: `id` may be rebound inside the arm branch
             # when the caller passes 0 and we auto-allocate a free slot.
             nonlocal name, id
             if action not in WDG_ACTIONS:
@@ -131,7 +131,7 @@ def register(mcp, ctx: Context) -> None:
             c = ctx.session.require_client(name)
             if action == "arm":
                 cid = current_client_id()
-                # v0.31 Phase 1.4: id=0 now auto-allocates the first free
+                # v1.0.1 Phase 1.4: id=0 now auto-allocates the first free
                 # slot instead of hard-erroring. We keep the chosen value
                 # in a local to avoid reassigning the `id` closure (which
                 # would make `id` a local of run() everywhere).
@@ -225,7 +225,7 @@ def register(mcp, ctx: Context) -> None:
                 if (ctx.ownership is not None
                         and isinstance(result, dict) and result.get("ok")):
                     await ctx.ownership.claim(cat, key, cid)
-                # v0.31 Phase 1.4: bare arm without a kicker now REFUSES
+                # v1.0.1 Phase 1.4: bare arm without a kicker now REFUSES
                 # by default (breaking change from v0.17's warning-only
                 # path). An armed deadline with nothing kicking it
                 # eventually bugchecks the target; a scripted workflow

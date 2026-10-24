@@ -314,7 +314,7 @@ def test_e_1c_foreign_arm_refused(tmp_path):
         await ctx.ownership.claim("watchdog:kernel", "5", "peer-X")
         env = await _call(server, "watchdog_manage",
                           {"action": "arm", "id": 5, "name": "kernel",
-                           # v0.31 Phase 1.4: pass unsafe_without_kicker
+                           # v1.0.1 Phase 1.4: pass unsafe_without_kicker
                            # so the refusal path we're testing is foreign-
                            # owned, not the new no-kicker refusal.
                            "unsafe_without_kicker": True})
@@ -333,7 +333,7 @@ def test_e_1c_replace_true_bypasses_foreign_owned(tmp_path):
         env = await _call(server, "watchdog_manage",
                           {"action": "arm", "id": 5, "name": "kernel",
                            "replace": True,
-                           # v0.31 Phase 1.4: unprotected arm needs the
+                           # v1.0.1 Phase 1.4: unprotected arm needs the
                            # explicit opt-in (no kicker in this test).
                            "unsafe_without_kicker": True})
         # Success — replace=True is the "yes I'm stealing" acknowledgement.
@@ -359,7 +359,7 @@ def test_e_1c_bare_rearm_warns_watchdog_collision(tmp_path):
 
 
 def test_e_1c_bare_arm_refuses_without_kicker(tmp_path):
-    """v0.31 Phase 1.4: bare arm without a kicker is REFUSED by default
+    """v1.0.1 Phase 1.4: bare arm without a kicker is REFUSED by default
     (breaking from v0.17's warn-only path). Pass unsafe_without_kicker to
     opt into the fire-and-forget behavior."""
     async def go():

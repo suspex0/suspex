@@ -1,6 +1,6 @@
 #pragma once
 
-// v0.31 Phase 2.2 — static-IPv4 pinning for the agent.
+// v1.0.1 Phase 2.2 — static-IPv4 pinning for the agent.
 //
 // Keeps a named adapter at a configured static IPv4 across reboots and DHCP
 // renews. The pin runs at service start and, unless pin_at_boot_only is set,

@@ -519,7 +519,7 @@ def register(mcp, ctx: Context) -> None:
                         entry["va"] = base_i + r
                     out_syms[nm] = entry
                 if not out_syms and fallback == "pattern":
-                    # v0.31 Phase 1.7: curated-pattern fallback for sealed
+                    # v1.0.1 Phase 1.7: curated-pattern fallback for sealed
                     # kernels. Reads a short window of the live module and
                     # scans each requested name's signatures; the recovered
                     # VA is the rip+disp32 target of the matched prologue.

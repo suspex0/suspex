@@ -1,7 +1,7 @@
 # Agent deployment & recovery runbook
 
 How `suspex_agent.exe` / `suspex_umagent.exe` are provisioned on a rig, and
-how they self-heal. Written after the rig field report (v0.31 Phase 5):
+how they self-heal. Written after the rig field report (v1.0.1 Phase 5):
 agent wedged after NIC churn (process alive, port LISTENING, all SYNs
 timing out) and no reliable boot autostart.
 
@@ -27,12 +27,12 @@ Two independent failure modes were reported:
   whichever thread is inside that blocked write stalls — including the
   event-engine threads that drain accepts. The listening socket stays
   open (kernel backlog), new SYNs time out, `taskkill` + restart is the
-  only recovery. v0.31 fixes: stderr is spliced onto a drain pipe and
+  only recovery. v1.0.1 fixes: stderr is spliced onto a drain pipe and
   relayed into the rotating log file, service/task context redirects the
   remaining stdio to `NUL`, and a loopback self-test (`listen_watch.cpp`)
   rebuilds the listener if it ever wedges anyway.
 - **B. No boot autostart.** The services were installed `start= demand`
-  (or launched by an ad-hoc task/Run entry). v0.31 installs them
+  (or launched by an ad-hoc task/Run entry). v1.0.1 installs them
   `start= auto` with `sc failure ... actions= restart/...` so SCM owns
   both boot start and crash restarts.
 

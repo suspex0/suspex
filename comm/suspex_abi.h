@@ -628,7 +628,7 @@ typedef struct _SUSPEX_PHYS_RANGES_HDR {
 // not evidence).
 
 #define SUSPEX_POOL_MAX_ENTRIES 4096
-// v0.31 Phase 3.2: pattern cap raised 16 -> 64 B, span cap 4 KiB -> 64 KiB.
+// v1.0.1 Phase 3.2: pattern cap raised 16 -> 64 B, span cap 4 KiB -> 64 KiB.
 // Older builds hit the smaller caps as STATUS_INVALID_PARAMETER; new ones
 // still accept the smaller sizes.
 #define SUSPEX_POOL_PATTERN_MAX 64
@@ -646,7 +646,7 @@ typedef struct _SUSPEX_POOL_SCAN_IN {
     UINT32 Offset;       // start of the content window inside the entry
     UCHAR  Pattern[SUSPEX_POOL_PATTERN_MAX];
     UCHAR  Mask[SUSPEX_POOL_PATTERN_MAX]; // 0 or '?' = wildcard byte
-    // v0.31 Phase 3.2: resume index. 0 = fresh scan; otherwise the driver
+    // v1.0.1 Phase 3.2: resume index. 0 = fresh scan; otherwise the driver
     // skips entries whose SystemBigPoolInformation index is below the
     // cursor and writes the next cursor into the HDR for the follow-up
     // call. The pool table isn't guaranteed stable across calls — treat
@@ -668,7 +668,7 @@ typedef struct _SUSPEX_POOL_HDR {
     UINT32 Count;
     UINT32 Required;    // total entries the walk saw before filter
     UINT32 Considered;  // total entries after tag/paged filter, before content
-    // v0.31 Phase 3.2: scan telemetry. `Holes` counts entries whose content
+    // v1.0.1 Phase 3.2: scan telemetry. `Holes` counts entries whose content
     // read failed (previously silently skipped), `SpanTruncated` counts
     // entries whose content span had to be clipped to the entry size,
     // `LastIndex` is the AllocatedInfo index the driver reached, and
@@ -1002,7 +1002,7 @@ typedef struct _SUSPEX_OBJ_ENTRY {
     WCHAR Name[SUSPEX_OBJ_NAME_CCH];
     WCHAR TypeName[SUSPEX_OBJ_NAME_CCH];
     UINT32 IsDirectory; // 1 = object directory (recursed when depth allows)
-    // v0.31 Phase 3.1: object body VA + type-index resolved via
+    // v1.0.1 Phase 3.1: object body VA + type-index resolved via
     // ObpRootDirectoryObject hash-bucket walk (populated iff `Source == 1`;
     // zero on the ZwQueryDirectoryObject fallback path, `Source == 0`).
     UINT32 Reserved;

@@ -17,7 +17,7 @@
 
 #include "suspex_abi.h"
 
-// v0.31 Phase 2.1: GetAdaptersAddresses for AdapterRow collection.
+// v1.0.1 Phase 2.1: GetAdaptersAddresses for AdapterRow collection.
 // winsock2.h MUST come before windows.h so the modern socket API is
 // defined before the Win32 header's conditional winsock1 pull-in; the
 // IP_ADAPTER_ADDRESSES / GAA_FLAG_* symbols need iphlpapi.h which pulls
@@ -727,7 +727,7 @@ void ProbeSecurityProducts(HostInfo& out)
 
 } // namespace
 
-// v0.31 Phase 2.1: enumerate IPv4 unicast addresses via GetAdaptersAddresses.
+// v1.0.1 Phase 2.1: enumerate IPv4 unicast addresses via GetAdaptersAddresses.
 // One row per address; adapter down + loopback are skipped. mac is
 // formatted colon-separated lowercase hex. Lives outside the anonymous
 // namespace so the Status gRPC handler can share it (header-exposed).
@@ -850,7 +850,7 @@ void Collect(bool include_security_products, bool include_hardware,
     if (include_security_products) {
         ProbeSecurityProducts(out);
     }
-    // v0.31 Phase 2.1: cheap and always-on. The adapter list is small
+    // v1.0.1 Phase 2.1: cheap and always-on. The adapter list is small
     // (handful of rows) and the orchestrator's self-heal / rediscover
     // paths rely on it. Failures land in probe_errors instead.
     ProbeAdapters(out);

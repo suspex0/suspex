@@ -124,8 +124,8 @@ class DeviceMixin:
                     {
                         "name": e.name,
                         "type": e.type,
-                        # v0.31 Phase 3.1: body VA + type-index + source.
-                        # Empty / 0 on pre-v0.31 agents.
+                        # v1.0.1 Phase 3.1: body VA + type-index + source.
+                        # Empty / 0 on pre-v1.0.1 agents.
                         "address": int(getattr(e, "address", 0) or 0),
                         "type_index": int(
                             getattr(e, "type_index", 0) or 0),

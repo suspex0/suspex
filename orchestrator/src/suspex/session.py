@@ -202,7 +202,7 @@ class Session:
         # retried first when the configured endpoint fails the pre-flight
         # probe (NIC lease flap, DHCP change).
         self._last_good_host: dict[str, str] = {}
-        # v0.31 Phase 1.2: optional callback that returns observed-endpoint
+        # v1.0.1 Phase 1.2: optional callback that returns observed-endpoint
         # host strings for a machine label (newest-first), used to extend
         # the connect candidate list beyond the configured + last-good +
         # alt_hosts set. Context installs this with
@@ -484,7 +484,7 @@ class Session:
             self.check_target(cand)
         probe_timeout_s = min(3.0, (t.connect_timeout_ms or 3000) / 1000.0)
         tried: list[str] = list(candidates)
-        # v0.31 Phase 1.1: fire every candidate's TCP SYN concurrently so a
+        # v1.0.1 Phase 1.1: fire every candidate's TCP SYN concurrently so a
         # dead endpoint doesn't block a live one by waiting out its full
         # timeout serially. Preference ranks the winners for ties
         # (configured > last_good > observed/alt_hosts, which is the order
@@ -551,7 +551,7 @@ class Session:
                 forced = True
             else:
                 # Either same owner (increment) or different owner without
-                # force (add as co-owner). v0.31 Phase 1.1: before handing
+                # force (add as co-owner). v1.0.1 Phase 1.1: before handing
                 # back the live client, verify the channel. A cached attach
                 # that answers status() means the view is live; a failure
                 # means we're sitting on a stale/wedged client — tear it
@@ -631,7 +631,7 @@ class Session:
                 self.stop_boot_monitor(key)
                 forced = True
             else:
-                # v0.31 Phase 1.1: same liveness check as the planned-key
+                # v1.0.1 Phase 1.1: same liveness check as the planned-key
                 # attach path above — a wedged cached view takes the
                 # fresh channel's place instead of returning stale state.
                 try:
@@ -670,7 +670,7 @@ class Session:
             status["computer_name"] = computer_name
         if self.primary not in self.clients:
             self.primary = key
-        # v0.31 Phase 1.1: connect auto-focuses the caller on the newly
+        # v1.0.1 Phase 1.1: connect auto-focuses the caller on the newly
         # connected view by default (focus=True). Prior behavior
         # ("first connect only") was a footgun — a caller that connected
         # a second machine then issued a bare-name call would land on
@@ -1025,7 +1025,7 @@ class Session:
         n = self.resolve_view_name(name)
         client = self.clients.get(n)
         if client is None:
-            # v0.31 Phase 1.1: enrich dead-view errors with the view's
+            # v1.0.1 Phase 1.1: enrich dead-view errors with the view's
             # last-known endpoint so the caller sees WHAT to reconnect to,
             # not just WHICH view is dead.
             info = self._machine_info.get(n) or {}

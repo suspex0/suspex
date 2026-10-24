@@ -50,7 +50,7 @@ class NetPinServicer:
     """Missing associated documentation comment in .proto file."""
 
     def Status(self, request, context):
-        """v0.31 2.2
+        """v1.0.1 2.2
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')

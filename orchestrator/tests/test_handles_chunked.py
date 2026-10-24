@@ -185,7 +185,7 @@ async def test_handles_offset_window(tmp_path, monkeypatch) -> None:
     ctx, server = await _server(tmp_path, monkeypatch)
     await _call(server, "target_manage", {"action": "connect"})
     # verbosity="full" keeps structured rows — at the default "normal" the
-    # v0.31 row-collapse renders handles as text lines (see
+    # v1.0.1 row-collapse renders handles as text lines (see
     # test_envelope_compact_more); this test asserts on the handle field.
     body = await _call(server, "mem_rw", {
         "action": "handles", "pid": 4, "space": "kernel",

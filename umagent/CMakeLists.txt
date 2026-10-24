@@ -14,7 +14,7 @@ set(SUSPEX_UMAGENT_SOURCES
     ../agent/src/pe/pe_reader.cpp
     # shared param-block trampoline call (CALL_USER) — same TU as the agent
     ../agent/src/exec/call_user.cpp
-    # v0.31 Phase 5: shared rotating log + listener self-test
+    # v1.0.1 Phase 5: shared rotating log + listener self-test
     ../agent/src/srv_log.cpp
     ../agent/src/listen_watch.cpp)
 
@@ -37,5 +37,5 @@ target_link_libraries(suspex_umagent PRIVATE
     gRPC::grpc++
     protobuf::libprotobuf
     advapi32
-    # v0.31 Phase 5: listener self-test loopback probes
+    # v1.0.1 Phase 5: listener self-test loopback probes
     ws2_32)

@@ -32,7 +32,7 @@ class ExecMixin:
 
     async def run_shell(self, command: str, shell: str = "cmd", workdir: str = "",
                         timeout_ms: int = 30000) -> dict[str, Any]:
-        # v0.31 Phase 2.3: PowerShell goes through -EncodedCommand on new
+        # v1.0.1 Phase 2.3: PowerShell goes through -EncodedCommand on new
         # agents to sidestep the double-parse mangling (quotes, backticks,
         # newlines, non-ASCII). Legacy agents without the field continue
         # on the `command=` string path.
@@ -48,7 +48,7 @@ class ExecMixin:
                 enc = _b64.b64encode(
                     command.encode("utf-16-le")).decode("ascii")
                 # Only pass encoded_command when the proto has the field —
-                # a pre-v0.31 generated pb2 lacks it; the request builder
+                # a pre-v1.0.1 generated pb2 lacks it; the request builder
                 # will reject the unknown kwarg.
                 probe = pb.RunShellRequest()
                 if hasattr(probe, "encoded_command"):

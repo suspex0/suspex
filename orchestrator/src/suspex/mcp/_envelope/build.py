@@ -283,13 +283,13 @@ def finalize(env: dict, *, opts: EnvelopeOpts | None = None) -> dict:
         include_int=True.
       * `_decoded` enum siblings — kept only at verbosity="full" (or with
         include_decoded=True); stripped at the default "normal" and at
-        "compact" (v0.31).
+        "compact" (v1.0.1).
       * `_flag` wrappers ({value, source, note?}) around booleans — collapsed
         to the value unless verbosity="full".
 
     v0.17 A-2 adds text-line collapse for select list actions — a row of
     ``{addr, bytes, mnemonic, op_str}`` becomes ``"0x1234  90 90 90  nop"``.
-    v0.31: the collapse runs at the default ``verbosity="normal"`` as well as
+    v1.0.1: the collapse runs at the default ``verbosity="normal"`` as well as
     ``"compact"`` (it previously fired only at ``"compact"``), so the savings
     apply by default; ``"full"``/``"raw"`` keep the structured rows. Registered
     per ``(tool, action)`` in :data:`COMPACT_TRANSFORMS`.
@@ -307,7 +307,7 @@ def finalize(env: dict, *, opts: EnvelopeOpts | None = None) -> dict:
     data = env.get("data")
     if data is not None:
         want_int = opts.include_int or opts.verbosity == "full"
-        # v0.31 (context-efficiency): `_decoded` enum siblings double every
+        # v1.0.1 (context-efficiency): `_decoded` enum siblings double every
         # enum field on the wire. They are kept only at verbosity="full" (or
         # with include_decoded=True) now — at the default "normal" the raw
         # value stays and the decoded sibling is dropped. value_manage /
@@ -328,7 +328,7 @@ def finalize(env: dict, *, opts: EnvelopeOpts | None = None) -> dict:
 
         # A-2: text-line collapse. Runs AFTER the mirror strips so a
         # transform sees clean dicts (no ``addr_int`` alongside ``addr``).
-        # v0.31: applied at the default "normal" too (not just "compact") —
+        # v1.0.1: applied at the default "normal" too (not just "compact") —
         # the documented 55-70% row-collapse savings on disasm/handles/vad/
         # heaps/exports/imports now fire by default. verbosity="full"/"raw"
         # still return the structured rows for programmatic callers.

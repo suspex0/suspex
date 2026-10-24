@@ -70,12 +70,12 @@ struct PoolScanOptions {
     UINT32 ContentSpan = 0;
     std::vector<UCHAR> Pattern; // <= SUSPEX_POOL_PATTERN_MAX bytes
     std::vector<UCHAR> Mask;    // same length as Pattern (0 or '?' = wildcard)
-    // v0.31 Phase 3.2: resume cursor from a previous scan's NextCursor
+    // v1.0.1 Phase 3.2: resume cursor from a previous scan's NextCursor
     // (0 = fresh scan).
     UINT32 Cursor = 0;
 };
 
-// v0.31 Phase 3.2: scan telemetry extracted from SUSPEX_POOL_HDR.
+// v1.0.1 Phase 3.2: scan telemetry extracted from SUSPEX_POOL_HDR.
 struct PoolScanTelemetry {
     UINT32 Required = 0;
     UINT32 Considered = 0;
@@ -147,7 +147,7 @@ struct ObjEntryRec {
     std::wstring Name;
     std::wstring Type;
     UINT32 IsDirectory;
-    // v0.31 Phase 3.1: object body VA + type index when the driver
+    // v1.0.1 Phase 3.1: object body VA + type index when the driver
     // resolved it (ObReferenceObjectByName); 0 on the ZwQueryDirectoryObject
     // fallback. Source is "walk" when address is populated, else "zwquery".
     UINT64 Address = 0;

@@ -37,7 +37,7 @@ static void SetState(DWORD state, DWORD exit = 0, DWORD waitHint = 0)
     SetServiceStatus(g_handle, &g_status);
 }
 
-// v0.31 Phase 5: STOP now asks the agent to unwind first (SetServiceStopHook
+// v1.0.1 Phase 5: STOP now asks the agent to unwind first (SetServiceStopHook
 // — the gRPC server shuts down, breadcrumbs flush, worker reports STOPPED).
 // ExitProcess stays as a bounded backstop so SCM never hangs on a wedged
 // stop path.

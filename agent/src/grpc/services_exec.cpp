@@ -155,7 +155,7 @@ public:
             return auth;
         }
         suspex::RunResult res;
-        // v0.31 Phase 2.3: when the caller supplied encoded_command and
+        // v1.0.1 Phase 2.3: when the caller supplied encoded_command and
         // the shell is PowerShell, go through -EncodedCommand. Plain
         // command= still works and is the only path for cmd.exe.
         if (req->shell() == POWERSHELL && !req->encoded_command().empty()) {

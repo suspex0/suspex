@@ -62,7 +62,7 @@ static int AgentMain(int argc, char** argv)
         return 2;
     }
 
-    // v0.31 Phase 5: rotating log + stdio safety BEFORE anything prints.
+    // v1.0.1 Phase 5: rotating log + stdio safety BEFORE anything prints.
     // In service/task context (no --dev) stdout/stderr can be pipes nobody
     // drains; a full pipe blocks the writer — a gRPC event-engine thread
     // in that state is exactly the rig's "process up, port dead" wedge.
@@ -103,7 +103,7 @@ static int AgentMain(int argc, char** argv)
     DriverMgr drvMgr(cfg);
     ExecMgr exec;
 
-    // v0.31 Phase 2.2: static-IPv4 pin (no-op unless --pin-adapter set).
+    // v1.0.1 Phase 2.2: static-IPv4 pin (no-op unless --pin-adapter set).
     // Started before the listener so the adapter carries its pinned
     // address before the first client reconnect attempt.
     host::NetPinMgr netPin(cfg);
@@ -125,7 +125,7 @@ static int AgentMain(int argc, char** argv)
                p.Flags);
     }
 
-    // v0.31 Phase 5: generation loop. BuildAndStart failures (stale
+    // v1.0.1 Phase 5: generation loop. BuildAndStart failures (stale
     // instance still holding the port, transient WSAEADDRINUSE during NIC
     // churn) retry with backoff instead of exiting; the listenwatch probe
     // tears down and rebuilds a wedged listener (process up, port dead).

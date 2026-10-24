@@ -266,7 +266,7 @@ COMPACT_TRANSFORMS: dict[tuple[str, str], tuple[str, Any]] = {
     ("mem_rw", "heaps"):   ("heaps",   _text_line_heaps),
     ("mem_rw", "exports"): ("items",   _text_line_exports),
     ("mem_rw", "imports"): ("items",   _text_line_imports),
-    # v0.31: generic kv-collapse for the other high-volume list actions.
+    # v1.0.1: generic kv-collapse for the other high-volume list actions.
     ("mem_rw", "process_list"):     ("items",  _text_line_kv),
     ("mem_rw", "threads"):          ("items",  _text_line_kv),
     ("debug_manage", "threads"):    ("items",  _text_line_kv),

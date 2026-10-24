@@ -1,6 +1,6 @@
 #pragma once
 
-// v0.31 Phase 5 — listener self-test.
+// v1.0.1 Phase 5 — listener self-test.
 //
 // Rig field report: agent process alive, netstat shows 0.0.0.0:50074
 // LISTENING (same PID), but all new TCP SYNs — loopback included — time
@@ -29,7 +29,7 @@ namespace suspex::listenwatch {
 // must never trigger a rebuild loop.
 bool LoopbackProbe(uint16_t port, int timeout_ms);
 
-// v0.31.1: the rig wedge also manifested as LAN-only SYN drops (SMB on
+// v1.0.1.1: the rig wedge also manifested as LAN-only SYN drops (SMB on
 // the same interfaces answered; loopback passed). A loopback-only probe
 // is blind to that, so the watch probes 127.0.0.1 AND every up-adapter
 // IPv4 (re-enumerated each cycle — DHCP moves them). A strike is any

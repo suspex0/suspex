@@ -40,7 +40,7 @@ typedef struct _SUSPEX_OBJ_WALK {
 
 #define SUSPEX_OBJDIR_SCRATCH 64 // SUSPEX_DIR_INFO slots per query
 
-// v0.31 Phase 3.1: optional object-body resolution. ObReferenceObjectByName
+// v1.0.1 Phase 3.1: optional object-body resolution. ObReferenceObjectByName
 // is the public kernel API that locates a named object; we use it as the
 // address resolver when the caller passes a parent-directory path (so we
 // can assemble "<parent>\<name>" per entry). Failure to resolve just leaves

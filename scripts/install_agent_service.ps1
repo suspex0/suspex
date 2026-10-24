@@ -6,7 +6,7 @@ param(
     [int]$Port = 50074,
     [int]$UmagentPort = 50075,
     [string]$Token = $(throw "-Token is required (long random string)"),
-    # v0.31 Phase 5: boot autostart. 'auto' (default) starts the services at
+    # v1.0.1 Phase 5: boot autostart. 'auto' (default) starts the services at
     # boot; 'demand' preserves the old manual-start behavior.
     [ValidateSet("auto", "demand")]
     [string]$StartMode = "auto",
@@ -67,7 +67,7 @@ if (-not $ts) {
 
 function Remove-ServiceIfExists($name) {
     # idempotent: stop + WAIT FOR FULL STOP + delete any existing instance
-    # before creating. The wait matters: the v0.31 agent stops gracefully
+    # before creating. The wait matters: the v1.0.1 agent stops gracefully
     # (server shutdown + breadcrumb flush can take seconds), and deleting
     # a still-stopping service marks it for deletion — the subsequent
     # create then fails with ERROR_SERVICE_MARKED_FOR_DELETE and the old

@@ -1,6 +1,6 @@
 [project]
 name = "suspex0"
-version = "0.31.0"
+version = "1.0.1"
 description = "AI-driven security assessment orchestrator: MCP server, agent link, IDA bridge, shared cross-agent knowledge base"
 requires-python = ">=3.12"
 dependencies = [

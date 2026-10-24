@@ -1,4 +1,4 @@
-// v0.31 Phase 2.2 — static-IPv4 pin manager.
+// v1.0.1 Phase 2.2 — static-IPv4 pin manager.
 
 #include "net_pin.hpp"
 

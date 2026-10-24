@@ -26,7 +26,7 @@ struct Config {
     std::string bind = "127.0.0.1"; // localhost-only by default: same-host parity view
     int port = 50075;
     std::string token;
-    std::string version = "0.31.0+" SUSPEX_GIT_SHA SUSPEX_GIT_DIRTY;
+    std::string version = "1.0.1+" SUSPEX_GIT_SHA SUSPEX_GIT_DIRTY;
     uint64_t maxReadBytes = 8ull << 20;
 };
 

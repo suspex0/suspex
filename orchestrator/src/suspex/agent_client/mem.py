@@ -272,11 +272,11 @@ class MemMixin:
                         cursor: int = 0) -> dict[str, Any]:
         """Kernel big-pool walk with optional tag/paged/content filters.
 
-        `pattern` (<=64 bytes, v0.31+ driver) + `content_span` (<=64 KiB,
-        v0.31+ driver) drives an MmCopyMemory-backed content check on
+        `pattern` (<=64 bytes, v1.0.1+ driver) + `content_span` (<=64 KiB,
+        v1.0.1+ driver) drives an MmCopyMemory-backed content check on
         each surviving entry; a wildcard mask byte is 0 or '?' (0x3F).
 
-        v0.31 Phase 3.2: `cursor` resumes a prior scan from
+        v1.0.1 Phase 3.2: `cursor` resumes a prior scan from
         ``next_cursor``; the response carries `holes`, `span_truncated`,
         `last_index`, and `next_cursor` (0 when the scan completed).
         """
@@ -295,7 +295,7 @@ class MemMixin:
             raise RuntimeError(msg.status.error)
         return {
             "required": msg.required, "considered": msg.considered,
-            # v0.31 Phase 3.2 fields; 0 on pre-v0.31 agents.
+            # v1.0.1 Phase 3.2 fields; 0 on pre-v1.0.1 agents.
             "holes": int(getattr(msg, "holes", 0) or 0),
             "span_truncated": int(getattr(msg, "span_truncated", 0) or 0),
             "last_index": int(getattr(msg, "last_index", 0) or 0),
